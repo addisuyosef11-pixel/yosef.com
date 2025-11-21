@@ -1,0 +1,49 @@
+/* Background image for login */
+.login-background {
+  background-image: url("../images/jo.jpg");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  min-height: 100vh;
+}
+
+/* Login box styling */
+.login-box {
+  background-color: rgba(255, 255, 255, 0.95);
+  max-width: 400px;
+  width: 100%;
+  border-radius: 8px;
+}
+
+.navbar.fixed-bottom .nav-link {
+  font-size: 14px;
+  padding: 5px 0;
+}
+/* Carousel container smaller */
+#carouselRTL {
+    max-width: 600px;
+    margin: 0 auto 40px; /* center + space below */
+}
+
+/* Limit carousel height */
+#carouselRTL .carousel-item img {
+    max-height: 300px;
+    width: 100%;
+    object-fit: cover;
+    border-radius: 12px;
+}
+
+/* Smaller overlay text */
+.image-text-overlay {
+    font-size: 1.3rem;
+    top: 15%;
+    left: 5%;
+    max-width: 60%;
+}
+
+/* Smaller caption text */
+.carousel-caption {
+    max-width: 60%;
+    font-size: 0.9rem;
+    margin-left: 15px;
+}

@@ -1,0 +1,230 @@
+import 'package:flutter/material.dart';
+import 'api_service.dart';
+import 'signup_page.dart';
+import 'home_page.dart';
+
+class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
+
+  @override
+  State<LoginPage> createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+  final TextEditingController _usernameController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+
+  bool _loading = false;
+  String? _error;
+  bool _isPressed = false; // for button press effect
+
+  void _login() async {
+    final username = _usernameController.text.trim();
+    final password = _passwordController.text.trim();
+
+    if (username.isEmpty || password.isEmpty) {
+      setState(() => _error = "Please fill in all fields");
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final token = await ApiService.login(username, password);
+      if (token != null && mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => HomePage(token: token)),
+        );
+      } else {
+        setState(() => _error = "Invalid username or password");
+      }
+    } catch (e) {
+      setState(() => _error = "Error: ${e.toString()}");
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 400),
+            padding: const EdgeInsets.all(28),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black12,
+                  blurRadius: 20,
+                  offset: Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  "CHAPA ONLINE WORK",
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 32),
+
+                // Username
+                TextField(
+                  controller: _usernameController,
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.person_outline, color: Colors.green),
+                    hintText: "Username",
+                    filled: true,
+                    fillColor: Colors.grey.shade100,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Password
+                TextField(
+                  controller: _passwordController,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.lock_outline, color: Colors.green),
+                    hintText: "Password",
+                    filled: true,
+                    fillColor: Colors.grey.shade100,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Error
+                if (_error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      _error!,
+                      style: const TextStyle(color: Colors.redAccent),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+
+                // 3D Green Login Button
+                GestureDetector(
+                  onTapDown: (_) => setState(() => _isPressed = true),
+                  onTapUp: (_) {
+                    setState(() => _isPressed = false);
+                    if (!_loading) _login();
+                  },
+                  onTapCancel: () => setState(() => _isPressed = false),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 100),
+                    width: double.infinity,
+                    height: 55,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: Colors.green,
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: _isPressed
+                          ? [
+                              const BoxShadow(
+                                color: Colors.black26,
+                                offset: Offset(0, 2),
+                                blurRadius: 4,
+                              )
+                            ]
+                          : [
+                              const BoxShadow(
+                                color: Colors.black38,
+                                offset: Offset(0, 6),
+                                blurRadius: 10,
+                              )
+                            ],
+                    ),
+                    child: _loading
+                        ? const CircularProgressIndicator(color: Colors.white)
+                        : const Text(
+                            "LOGIN",
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Signup link
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text(
+                      "Don't have an account?",
+                      style: TextStyle(color: Colors.black54),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pushReplacement(
+                          context,
+                          MaterialPageRoute(builder: (_) => const SignupPage()),
+                        );
+                      },
+                      child: const Text(
+                        "Sign Up",
+                        style: TextStyle(
+                          color: Colors.green,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
