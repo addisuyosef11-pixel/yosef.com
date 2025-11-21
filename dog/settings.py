@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+
 # -------------------------------------------------
 # Base Directory
 # -------------------------------------------------
@@ -11,7 +12,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # -------------------------------------------------
 SECRET_KEY = 'django-insecure-your_secret_key_here'
 DEBUG = True
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '10.164.10.181']
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '*', '10.164.10.181']
 
 # -------------------------------------------------
 # Installed Apps
@@ -54,6 +55,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'cat.middleware.ReferralMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
 ]
 
 # -------------------------------------------------
@@ -117,12 +119,14 @@ ASGI_APPLICATION = 'dog.asgi.application'  # ✅ WebSocket support
 # -------------------------------------------------
 # Database
 # -------------------------------------------------
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+import dj_database_url
+DATABASES ={
+    'default': dj_database_url.config(
+        conn_max_age=600,
+        default="sqlite:///db.sqlite3"   # fallback when running locally
+    )
 }
+    
 
 # -------------------------------------------------
 # Password Validators
