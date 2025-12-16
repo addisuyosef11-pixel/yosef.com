@@ -33,6 +33,11 @@ urlpatterns = [
     path('invite/my-code/', api_views.get_my_invite_code, name='get_my_invite_code'),
     path('gift/redeem/', api_views.redeem_gift_code, name='redeem_gift_code'),
     path('gift/info/', api_views.get_gift_code_info, name='get_gift_code_info'),
+    path('main-projects/', api_views.get_main_projects, name='main-projects'),
+    path('main-projects/featured/', api_views.get_featured_projects, name='featured-projects'),
+    path('main-projects/available/', api_views.get_available_projects, name='available-projects'),
+    path('recharge/history/',api_views.recharge_history, name='recharge_history'),
+    path("payment-methods/", api_views.get_payment_methods, name="payment-methods"),
 
     
 

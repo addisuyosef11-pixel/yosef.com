@@ -17,7 +17,36 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'username', 'email', 'first_name', 'last_name']
+from rest_framework import serializers
+from .models import MainProject
 
+class MainProjectSerializer(serializers.ModelSerializer):
+    remaining_units = serializers.ReadOnlyField()
+    is_available = serializers.ReadOnlyField()
+    
+    class Meta:
+        model = MainProject
+        fields = [
+            'id',
+            'title',
+            'description',
+            'short_description',
+            'price',
+            'daily_income',
+            'cycle_days',
+            'total_income',
+            'total_units',
+            'available_units',
+            'remaining_units',
+            'status',
+            'is_featured',
+            'is_active',
+            'is_available',
+            'image_url',
+            'thumbnail_url',
+            'slug',
+            'created_at',
+        ]
 
 # -----------------------
 # PROFILE SERIALIZER
@@ -66,6 +95,8 @@ class ProfileSerializer(serializers.ModelSerializer):
 # TRANSACTION SERIALIZER
 # -----------------------
 class TransactionSerializer(serializers.ModelSerializer):
+   
+    
     class Meta:
         model = Transaction
         fields = ['id', 'type', 'amount', 'date', 'status', 'bank', 'account_number', 'phone_number']

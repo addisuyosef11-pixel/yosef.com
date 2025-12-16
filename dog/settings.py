@@ -1,7 +1,6 @@
 import os
 from pathlib import Path
 
-
 # -------------------------------------------------
 # Base Directory
 # -------------------------------------------------
@@ -12,34 +11,41 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # -------------------------------------------------
 SECRET_KEY = 'django-insecure-your_secret_key_here'
 DEBUG = True
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '*', '10.164.10.181']
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '*', '192.168.137.1']
 
 # -------------------------------------------------
-# Installed Apps
+# Installed Apps - IMPORTANT: ORDER MATTERS!
 # -------------------------------------------------
 INSTALLED_APPS = [
-    'jazzmin',
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
+    # Django core apps (must come first)
+    
+    'django.contrib.auth',           # MUST come before 'cat'
+    'django.contrib.contenttypes',   # MUST come before 'cat'
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.humanize',
-
-    # Third-party
+    
+    # Third-party apps
+    'jazzmin',
+    'django.contrib.admin',                      # Moved after django apps
     'rest_framework',
     'rest_framework.authtoken',
     'corsheaders',
     'phonenumber_field',
     'widget_tweaks',
     'channels',
-
-    # Local apps
-    'cat',
+   
+    # Local apps (must come after auth and contenttypes)
+    'cat',                          # Your custom user model app
     'chat',
-    'aviator',  # ✅ add this for your new game app
+    'aviator',
 ]
+
+# -------------------------------------------------
+# Custom User Model - MUST be set BEFORE any imports
+# -------------------------------------------------
+AUTH_USER_MODEL = 'cat.User'
 
 # -------------------------------------------------
 # Middleware
@@ -54,8 +60,8 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'cat.middleware.ReferralMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
+    'cat.middleware.ReferralMiddleware',
 ]
 
 # -------------------------------------------------
@@ -117,16 +123,15 @@ WSGI_APPLICATION = 'dog.wsgi.application'
 ASGI_APPLICATION = 'dog.asgi.application'  # ✅ WebSocket support
 
 # -------------------------------------------------
-# Database
+# Database - SIMPLIFIED FOR NOW
 # -------------------------------------------------
-import dj_database_url
-DATABASES ={
-    'default': dj_database_url.config(
-        conn_max_age=600,
-        default="sqlite:///db.sqlite3"   # fallback when running locally
-    )
+# Remove dj_database_url import and use simple SQLite
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
 }
-    
 
 # -------------------------------------------------
 # Password Validators
@@ -232,12 +237,4 @@ LANGUAGES = [
 ]
 LOCALE_PATHS = [BASE_DIR / 'locale']
 
-
-
-
-
-
-
-AFRICASTALKING_USERNAME = "sandbox"
-
-AFRICASTALKING_API_KEY = "atsk_10ef90ed49478dc4fd204b6ac92b2c7f2b23a229f2983af899d47dbb7e16a3427ac4d45d"
+# -------------------------------------------------

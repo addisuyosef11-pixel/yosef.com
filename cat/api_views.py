@@ -33,55 +33,81 @@ from django.conf import settings
 import json
 
 from .models import OTP
-import africastalking
 
 
-def send_sms(phone_number, message):
-    africastalking.initialize(settings.AFRICASTALKING_USERNAME, settings.AFRICASTALKING_API_KEY)
-    sms = africastalking.SMS
-    try:
-        sms.send(message, [phone_number])
-        return True
-    except Exception as e:
-        print("SMS sending error:", e)
-        return False
+# In api_views.py
+from django.utils import timezone
+from django.contrib.auth import get_user_model
+from django.views.decorators.csrf import csrf_exempt
+from django.http import JsonResponse
+import json
 
+User = get_user_model()
 
 @csrf_exempt
-@require_POST
 def signup_api(request):
-    data = json.loads(request.body.decode('utf-8'))
-    username = data.get('username')
-    email = data.get('email')
-    password = data.get('password')
-    phone = data.get('phone')
-
-    # Validate required fields
-    if not all([username, email, password, phone]):
-        return JsonResponse({'error': 'All fields are required.'}, status=400)
-
-    if User.objects.filter(username=username).exists():
-        return JsonResponse({'error': 'Username already taken.'}, status=400)
-
-    # Create user
-    user = User.objects.create_user(username=username, email=email, password=password)
-
-    # Create OTP
-    otp_obj, created = OTP.objects.get_or_create(user=user)
-    otp_obj.otp_code = ''.join(random.choices(string.digits, k=6))
-    otp_obj.created_at = timezone.now()
-    otp_obj.expires_at = otp_obj.created_at + timedelta(minutes=1)
-    otp_obj.save()
-
-    # Send OTP via SMS
-    message = f"Hello {username}, your verification code is {otp_obj.otp_code}. It expires in 1 minute."
-    send_sms(phone, message)
-
-    return JsonResponse({'message': 'User created successfully. OTP sent to phone.'})
-
-
-
-
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    try:
+        # Parse JSON data
+        data = json.loads(request.body)
+        
+        # Extract data with defaults
+        username = data.get('username')
+        email = data.get('email')
+        phone = data.get('phone')
+        password = data.get('password')
+        refcode = data.get('refcode')
+        first_name = data.get('first_name')
+        last_name = data.get('last_name')
+        
+        # Debug print
+        print(f"Signup attempt: username={username}, email={email}, phone={phone}")
+        
+        # Validate required fields
+        if not username:
+            return JsonResponse({'error': 'Username is required'}, status=400)
+        if not password:
+            return JsonResponse({'error': 'Password is required'}, status=400)
+        
+        # Check if user already exists
+        if User.objects.filter(username=username).exists():
+            return JsonResponse({'error': 'Username already exists'}, status=400)
+        if email and User.objects.filter(email=email).exists():
+            return JsonResponse({'error': 'Email already registered'}, status=400)
+        
+        # ✅ FIXED: Create user without date_joined parameter
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            password=password,
+            first_name=first_name or '',
+            last_name=last_name or '',
+        )
+        
+        # Add optional fields
+        if phone:
+            user.phone = phone
+        if refcode:
+            user.refcode = refcode
+        
+        user.save()
+        
+        # Return success response
+        return JsonResponse({
+            'success': True,
+            'message': 'User created successfully',
+            'user_id': user.id,
+            'username': user.username
+        })
+        
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON format'}, status=400)
+    except Exception as e:
+        # Make sure to return a response for all exceptions
+        print(f"Unexpected error in signup_api: {e}")
+        return JsonResponse({'error': f'Server error: {str(e)}'}, status=500)
 @csrf_exempt
 @require_POST
 def verify_otp(request):
@@ -191,7 +217,6 @@ def profile_api(request):
 def balance_api(request):
     """
     Return the balance details for the authenticated user.
-    Includes total balance, available balance, frozen balance, and transaction history.
     """
     try:
         user = request.user
@@ -203,8 +228,6 @@ def balance_api(request):
 
         # Calculate balances
         balance = float(total_deposit - total_withdraw)
-        # Example: You can define available_balance and frozen_balance as needed
-        # For simplicity, let's assume 10% of balance is frozen
         frozen_balance = float(balance * 0.01)
         available_balance = float(balance - frozen_balance)
 
@@ -224,7 +247,142 @@ def balance_api(request):
             status=500
         )
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def redeem_gift_code(request):
+    """
+    Redeem a gift code and add balance to user's account.
+    """
+    try:
+        user = request.user
+        code = request.data.get('gift_code', '').strip().upper()
+        
+        if not code:
+            return Response(
+                {"error": "Gift code is required."},
+                status=400
+            )
+        
+        # Validate gift code
+        gift_code = _validate_gift_code(code, user)
+        if isinstance(gift_code, Response):
+            return gift_code  # Return error response
+        
+        # Calculate redemption amount
+        redemption_amount = _calculate_redemption_amount(gift_code)
+        
+        # Process redemption
+        redemption, transaction = _process_redemption(gift_code, user, redemption_amount)
+        
+        # Update user balance
+        _update_user_balance(user, redemption_amount)
+        
+        logger.info(f"User {user.username} redeemed gift code {code} for {redemption_amount} Br")
+        
+        return Response({
+            "success": True,
+            "message": f"Successfully redeemed {redemption_amount:.2f} Br",
+            "amount": redemption_amount,
+            "balance": float(user.profile.balance) if hasattr(user, 'profile') else 0,
+            "transaction_id": transaction.id,
+            "redemption_id": redemption.id
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error redeeming gift code for user {user.username}: {str(e)}")
+        return Response(
+            {"error": "Failed to redeem gift code. Please try again."},
+            status=500
+        )
 
+def _validate_gift_code(code, user):
+    """Validate gift code and return it or error response"""
+    try:
+        gift_code = GiftCode.objects.get(code=code)
+    except GiftCode.DoesNotExist:
+        return Response(
+            {"error": "Invalid gift code."},
+            status=400
+        )
+    
+    # Check if user already redeemed this code
+    if GiftRedemption.objects.filter(gift_code=gift_code, user=user).exists():
+        return Response(
+            {"error": "You have already redeemed this gift code."},
+            status=400
+        )
+    
+    # Check expiration
+    if gift_code.expires_at and gift_code.expires_at < timezone.now():
+        return Response(
+            {"error": "This gift code has expired."},
+            status=400
+        )
+    
+    # Check if active
+    if not gift_code.is_active:
+        return Response(
+            {"error": "This gift code is no longer active."},
+            status=400
+        )
+    
+    # Check remaining amount
+    remaining_amount = gift_code.remaining_amount()
+    if remaining_amount <= 0:
+        return Response(
+            {"error": "This gift code has no remaining balance."},
+            status=400
+        )
+    
+    # Check max redemptions
+    if gift_code.max_redemptions and gift_code.redemptions.count() >= gift_code.max_redemptions:
+        return Response(
+            {"error": "This gift code has reached its redemption limit."},
+            status=400
+        )
+    
+    return gift_code
+
+def _calculate_redemption_amount(gift_code):
+    """Calculate the amount to redeem"""
+    remaining_amount = gift_code.remaining_amount()
+    redemption_amount = float(gift_code.per_user_amount)
+    
+    # If per_user_amount exceeds remaining, use remaining
+    if redemption_amount > remaining_amount:
+        redemption_amount = remaining_amount
+    
+    return redemption_amount
+
+def _process_redemption(gift_code, user, amount):
+    """Process the redemption and create records"""
+    # Create redemption record
+    redemption = GiftRedemption.objects.create(
+        gift_code=gift_code,
+        user=user,
+        amount=amount,
+        redeemed_at=timezone.now()
+    )
+    
+    # Create transaction
+    transaction = Transaction.objects.create(
+        customer=user,
+        amount=amount,
+        type='deposit',
+        description=f'Gift code redemption: {gift_code.code}',
+        status='completed'
+    )
+    
+    return redemption, transaction
+
+def _update_user_balance(user, amount):
+    """Update user's balance"""
+    try:
+        if hasattr(user, 'profile'):
+            user.profile.balance += amount
+            user.profile.save()
+    except Exception as e:
+        logger.error(f"Error updating user balance: {str(e)}")
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -732,3 +890,379 @@ def get_gift_code_info(request):
         return Response(serializer.data)
     except GiftCode.DoesNotExist:
         return Response({"message": "No gift code available."}, status=404)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def recharge_history(request):
+    """
+    Get user's recharge/deposit history
+    Endpoint: GET /api/recharge/history/
+    """
+    try:
+        user = request.user
+        logger.info(f"Fetching recharge history for user: {user.username}")
+        
+        # Get all deposit/recharge transactions for the user
+        # Filter by type: 'deposit', 'recharge', 'payment', 'topup'
+        deposits = Transaction.objects.filter(
+            customer=user,
+            type__in=['deposit', 'recharge', 'payment', 'topup']
+        ).order_by('-date')  # Most recent first
+        
+        # Prepare response data
+        history_data = []
+        for deposit in deposits:
+            # Safely format the transaction data using getattr
+            transaction_data = {
+                'id': getattr(deposit, 'id', None),
+                'transaction_id': getattr(deposit, 'transaction_id', None) or f"TX{getattr(deposit, 'id', 0):08d}",
+                'amount': float(getattr(deposit, 'amount', 0)),
+                'type': getattr(deposit, 'type', 'deposit'),
+                'description': getattr(deposit, 'description', 'Deposit'),  # Use getattr for safety
+                'status': getattr(deposit, 'status', 'pending'),
+                'payment_method': getattr(deposit, 'payment_method', ''),
+                'reference_number': getattr(deposit, 'reference_number', ''),
+            }
+            
+            # Safely handle date fields
+            date = getattr(deposit, 'date', None)
+            if date:
+                transaction_data['created_at'] = date.isoformat()
+            else:
+                transaction_data['created_at'] = None
+            
+            completed_at = getattr(deposit, 'completed_at', None)
+            if completed_at:
+                transaction_data['completed_at'] = completed_at.isoformat()
+            else:
+                transaction_data['completed_at'] = None
+            
+            # Add payment proof URL if exists
+            if hasattr(deposit, 'payment_proof') and deposit.payment_proof:
+                try:
+                    transaction_data['payment_proof_url'] = request.build_absolute_uri(deposit.payment_proof.url)
+                except (AttributeError, ValueError):
+                    transaction_data['payment_proof_url'] = None
+            
+            history_data.append(transaction_data)
+        
+        logger.info(f"Found {len(history_data)} recharge transactions for {user.username}")
+        
+        return Response({
+            'success': True,
+            'count': len(history_data),
+            'transactions': history_data
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in recharge_history for user {request.user.username}: {str(e)}")
+        return Response(
+            {"success": False, "error": "Failed to fetch recharge history", "details": str(e)},
+            status=500
+        )
+
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from django.db import transaction
+from django.utils import timezone
+from django.shortcuts import get_object_or_404
+from .models import MainProject, User
+from .serializers import MainProjectSerializer
+from decimal import Decimal
+import json
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_main_projects(request):
+    """
+    Get all main projects (public access)
+    """
+    try:
+        # Filter by query parameters
+        featured = request.GET.get('featured', '').lower() == 'true'
+        available = request.GET.get('available', '').lower() == 'true'
+        
+        queryset = MainProject.objects.filter(is_active=True)
+        
+        if featured:
+            queryset = queryset.filter(is_featured=True)
+        
+        if available:
+            queryset = queryset.filter(status='available', available_units__gt=0)
+        
+        # Order by featured first, then creation date
+        queryset = queryset.order_by('-is_featured', '-created_at')
+        
+        serializer = MainProjectSerializer(queryset, many=True)
+        return Response({
+            'success': True,
+            'count': len(serializer.data),
+            'projects': serializer.data
+        })
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Error fetching projects: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+def get_featured_projects(request):
+    """
+    Get featured main projects (public access)
+    """
+    try:
+        projects = MainProject.objects.filter(
+            is_active=True,
+            is_featured=True,
+            status='available',
+            available_units__gt=0
+        ).order_by('-created_at')[:3]
+        
+        serializer = MainProjectSerializer(projects, many=True)
+        return Response({
+            'success': True,
+            'count': len(serializer.data),
+            'projects': serializer.data
+        })
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Error fetching featured projects: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+def get_available_projects(request):
+    """
+    Get available projects for investment (public access)
+    """
+    try:
+        projects = MainProject.objects.filter(
+            is_active=True,
+            status='available',
+            available_units__gt=0
+        ).order_by('-is_featured', '-created_at')
+        
+        serializer = MainProjectSerializer(projects, many=True)
+        return Response({
+            'success': True,
+            'count': len(serializer.data),
+            'projects': serializer.data
+        })
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Error fetching available projects: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+def get_project_detail(request, slug):
+    """
+    Get specific project details by slug (public access)
+    """
+    try:
+        project = get_object_or_404(MainProject, slug=slug, is_active=True)
+        serializer = MainProjectSerializer(project)
+        return Response({
+            'success': True,
+            'project': serializer.data
+        })
+        
+    except MainProject.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': 'Project not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Error fetching project: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def invest_in_project(request):
+    """
+    Invest in a main project (authenticated users only)
+    """
+    try:
+        # Parse request data
+        try:
+            data = json.loads(request.body)
+        except json.JSONDecodeError:
+            data = request.data
+            
+        project_id = data.get('project_id')
+        units = data.get('units', 1)
+        
+        if not project_id:
+            return Response({
+                'success': False,
+                'message': 'project_id is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get project
+        try:
+            project = MainProject.objects.get(
+                id=project_id, 
+                is_active=True,
+                status='available'
+            )
+        except MainProject.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'Project not found or not available for investment'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Validate units
+        if units < 1:
+            return Response({
+                'success': False,
+                'message': 'Units must be at least 1'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if units > project.available_units:
+            return Response({
+                'success': False,
+                'message': f'Only {project.available_units} units available. Requested: {units}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Calculate total amount
+        total_amount = project.price * units
+        
+        # Check user balance (adjust based on your UserProfile model)
+        user_profile = request.user.profile
+        
+        if not hasattr(user_profile, 'balance'):
+            return Response({
+                'success': False,
+                'message': 'User profile error: balance field not found'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if user_profile.balance < total_amount:
+            return Response({
+                'success': False,
+                'message': f'Insufficient balance. Required: {total_amount} Br, Available: {user_profile.balance} Br'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Process investment
+        try:
+            with transaction.atomic():
+                # Deduct from user balance
+                user_profile.balance -= total_amount
+                user_profile.save()
+                
+                # Update project available units
+                project.available_units -= units
+                project.save()
+                
+                # Create investment record
+                investment = User.objects.create(
+                    user=request.user,
+                    project=project,
+                    units=units,
+                    total_amount=total_amount,
+                    daily_income=project.daily_income * units,
+                    total_income=project.total_income * units,
+                    cycle_days=project.cycle_days,
+                    status='active',
+                    start_date=timezone.now(),
+                    end_date=timezone.now() + timezone.timedelta(days=project.cycle_days)
+                )
+                
+                # Prepare response data
+                response_data = {
+                    'success': True,
+                    'message': f'Successfully invested in {project.title}',
+                    'investment_id': investment.id,
+                    'project_title': project.title,
+                    'units': units,
+                    'total_amount': float(total_amount),
+                    'daily_income': float(investment.daily_income),
+                    'total_income': float(investment.total_income),
+                    'cycle_days': investment.cycle_days,
+                    'start_date': investment.start_date,
+                    'end_date': investment.end_date,
+                    'remaining_units': project.available_units,
+                    'new_balance': float(user_profile.balance)
+                }
+                
+                return Response(response_data, status=status.HTTP_201_CREATED)
+                
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': f'Transaction failed: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Investment error: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_my_investments(request):
+    """
+    Get current user's investments in main projects
+    """
+    try:
+        investments = User.objects.filter(
+            user=request.user
+        ).select_related('project').order_by('-created_at')
+        
+        investment_list = []
+        for inv in investments:
+            investment_list.append({
+                'id': inv.id,
+                'project_title': inv.project.title,
+                'project_id': inv.project.id,
+                'units': inv.units,
+                'total_amount': float(inv.total_amount),
+                'daily_income': float(inv.daily_income),
+                'total_income': float(inv.total_income),
+                'cycle_days': inv.cycle_days,
+                'status': inv.status,
+                'start_date': inv.start_date,
+                'end_date': inv.end_date,
+                'created_at': inv.created_at,
+            })
+        
+        return Response({
+            'success': True,
+            'count': len(investment_list),
+            'investments': investment_list
+        })
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Error fetching investments: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+
+
+
+from .models import PaymentMethod
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def get_payment_methods(request):
+    methods = PaymentMethod.objects.filter(is_active=True)
+
+    data = []
+    for m in methods:
+        data.append({
+            "id": m.id,
+            "name": m.name,
+            "account": m.account_number,
+            "account_name": m.account_name,
+            "status": "available",
+        })
+
+    return JsonResponse({"methods": data}, status=200)
+

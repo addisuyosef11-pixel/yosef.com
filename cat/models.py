@@ -1,33 +1,79 @@
-
-
-
 from django.db import models
-from django.contrib.auth.models import User
+from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
 from django.utils import timezone
-import random, string
 from datetime import timedelta
+import random, string
+from django.conf import settings
+from django.core.validators import MinValueValidator, EmailValidator
+
 
 # =======================
-# USER & PROFILE MODELS
+# CUSTOM USER MODEL
 # =======================
+
+class UserManager(BaseUserManager):
+    use_in_migrations = True
+
+    def create_user(self, username, phone=None, email=None, password=None, **extra_fields):
+        if not username:
+            raise ValueError("Username is required")
+        email = self.normalize_email(email)
+        user = self.model(username=username, phone=phone, email=email, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, username, phone=None, email=None, password=None, **extra_fields):
+        extra_fields.setdefault('is_staff', True)
+        extra_fields.setdefault('is_superuser', True)
+        extra_fields.setdefault('is_active', True)
+
+        if extra_fields.get('is_staff') is not True:
+            raise ValueError('Superuser must have is_staff=True.')
+        if extra_fields.get('is_superuser') is not True:
+            raise ValueError('Superuser must have is_superuser=True.')
+
+        return self.create_user(username=username, phone=phone, email=email, password=password, **extra_fields)
+
+
+class User(AbstractBaseUser, PermissionsMixin):
+    username = models.CharField(max_length=150, unique=True)
+    first_name = models.CharField(max_length=30, blank=True, null=True)
+    last_name = models.CharField(max_length=30, blank=True, null=True) 
+    phone = models.CharField(max_length=20, blank=True, null=True)
+    email = models.EmailField(blank=True, null=True)
+    is_staff = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    date_joined = models.DateTimeField(default=timezone.now)
+    objects = UserManager()
+
+    USERNAME_FIELD = 'username'
+    REQUIRED_FIELDS = []
+
+    def __str__(self):
+        return self.username
+
 
 class Profile(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     phone = models.CharField(max_length=20, blank=True, null=True)
     address = models.TextField(blank=True, null=True)
     avatar = models.ImageField(upload_to="avatars/", default="avatars/default.png")
     vip_level = models.PositiveIntegerField(default=0)
-    inviter = models.ForeignKey(User, null=True, blank=True, related_name="invited_users", on_delete=models.SET_NULL)
-    coins = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    gold = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    inviter = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        related_name="invited_users",
+        on_delete=models.SET_NULL,
+    )
+    points = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     account_number = models.CharField(max_length=50, blank=True, null=True)
     balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     available_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    frozen_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     invite_code = models.CharField(max_length=6, unique=True, blank=True, null=True)
 
     def save(self, *args, **kwargs):
-        """Generate unique 6-digit invite code if missing"""
         if not self.invite_code:
             self.invite_code = self.generate_invite_code()
         super().save(*args, **kwargs)
@@ -35,26 +81,27 @@ class Profile(models.Model):
     @staticmethod
     def generate_invite_code():
         while True:
-            code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+            code = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
             if not Profile.objects.filter(invite_code=code).exists():
                 return code
 
     def __str__(self):
         return self.user.username
 
+
 # =======================
 # OTP MODEL
 # =======================
 
 class OTP(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     otp_code = models.CharField(max_length=6)
     is_verified = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(null=True, blank=True)
 
     def generate_otp(self):
-        self.otp_code = ''.join(random.choices(string.digits, k=6))
+        self.otp_code = "".join(random.choices(string.digits, k=6))
         self.created_at = timezone.now()
         self.expires_at = self.created_at + timedelta(minutes=1)
         self.save()
@@ -62,23 +109,32 @@ class OTP(models.Model):
     def is_expired(self):
         return timezone.now() > self.expires_at
 
+
 # =======================
 # BALANCE MODEL
 # =======================
 
 class Balance(models.Model):
-    customer = models.OneToOneField(User, on_delete=models.CASCADE)
+    customer = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"{self.customer.username} - ETB {self.amount}"
 
+
 # =======================
 # FINANCE & BANKING
 # =======================
 
-class Bank(models.Model):
+STATUS_CHOICES = [
+    ('available', 'Available'),
+    ('sold_out', 'Sold Out'),
+    ('coming_soon', 'Coming Soon'),
+]
+
+
+class BankAccount(models.Model):
     name = models.CharField(max_length=100)
     account_name = models.CharField(max_length=150)
     account_number = models.CharField(max_length=50)
@@ -86,6 +142,7 @@ class Bank(models.Model):
 
     def __str__(self):
         return self.name
+
 
 class Transaction(models.Model):
     BANK_CHOICES = [
@@ -102,9 +159,9 @@ class Transaction(models.Model):
     STATUS_CHOICES = [
         ('pending', 'Pending'),
         ('approved', 'Approved'),
-        ('sent', 'Sent'),
+        ('success', 'success'),
     ]
-
+   
     customer = models.ForeignKey(User, on_delete=models.CASCADE)
     type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)
     bank = models.CharField(max_length=20, choices=BANK_CHOICES, blank=True, null=True)
@@ -113,9 +170,20 @@ class Transaction(models.Model):
     phone_number = models.CharField(max_length=20, blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     date = models.DateTimeField(auto_now_add=True)
-
+    def get_description(self, obj):
+        """Create description from available data"""
+        amount = getattr(obj, 'amount', 0)
+        
+        # Try to get type if it exists
+        if hasattr(obj, 'type'):
+            return f"{obj.type} of ${amount}"
+        elif hasattr(obj, 'transaction_type'):
+            return f"{obj.transaction_type} of ${amount}"
+        else:
+            return f"Transaction of ${amount}"
     def __str__(self):
-        return f"{self.customer.username} - {self.type} - {self.amount}"
+        return f"{self.customer.phone} - {self.type} - {self.amount}"
+
 
 class Withdrawal(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -124,7 +192,8 @@ class Withdrawal(models.Model):
     status = models.CharField(max_length=20, default='pending')
 
     def __str__(self):
-        return f"Withdrawal {self.amount} by {self.user.username} - {self.status}"
+        return f"Withdrawal {self.amount} by {self.user.phone} - {self.status}"
+
 
 class Recharge(models.Model):
     STATUS_CHOICES = [
@@ -137,6 +206,212 @@ class Recharge(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     transaction_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+# =======================
+# PAYMENT METHODS & RECHARGE
+# =======================
+
+class PaymentMethod(models.Model):
+    """Payment methods available for recharge"""
+    PAYMENT_TYPES = [
+        ('bank', 'Bank Transfer'),
+        ('mobile_money', 'Mobile Money'),
+        ('digital_wallet', 'Digital Wallet'),
+        ('card', 'Card Payment'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('active', 'Active'),
+        ('inactive', 'Inactive'),
+        ('maintenance', 'Maintenance'),
+    ]
+    
+    name = models.CharField(max_length=100)
+    payment_type = models.CharField(max_length=20, choices=PAYMENT_TYPES)
+    account_name = models.CharField(max_length=150)
+    account_number = models.CharField(max_length=100)
+    bank_name = models.CharField(max_length=100, blank=True, null=True)
+    branch = models.CharField(max_length=100, blank=True, null=True)
+    phone_number = models.CharField(max_length=20, blank=True, null=True)
+    qr_code = models.ImageField(upload_to='payment_qrcodes/', blank=True, null=True)
+    instructions = models.TextField(blank=True)
+    min_amount = models.DecimalField(max_digits=10, decimal_places=2, default=10.00)
+    max_amount = models.DecimalField(max_digits=10, decimal_places=2, default=10000.00)
+    processing_time = models.CharField(max_length=50, default='5-15 minutes')
+    is_active = models.BooleanField(default=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+    priority = models.IntegerField(default=0)
+    icon = models.CharField(max_length=50, blank=True, null=True, help_text='FontAwesome icon class')
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['priority', '-created_at']
+        verbose_name = 'Payment Method'
+        verbose_name_plural = 'Payment Methods'
+    
+    def __str__(self):
+        return f"{self.name} - {self.get_payment_type_display()}"
+
+
+class RechargeRequest(models.Model):
+    """User recharge requests with manual verification"""
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('processing', 'Processing'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+        ('cancelled', 'Cancelled'),
+    ]
+    
+    PAYMENT_STATUS_CHOICES = [
+        ('unpaid', 'Unpaid'),
+        ('paid', 'Paid'),
+        ('verified', 'Payment Verified'),
+    ]
+    
+    # User and payment info
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='recharge_requests')
+    payment_method = models.ForeignKey(PaymentMethod, on_delete=models.SET_NULL, null=True)
+    
+    # Transaction details
+    transaction_id = models.CharField(max_length=100, unique=True, blank=True, null=True)
+    reference_number = models.CharField(max_length=100, blank=True, null=True, help_text='User-provided transaction reference')
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    fee = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    total_amount = models.DecimalField(max_digits=10, decimal_places=2, help_text='Amount + Fee')
+    
+    # Status tracking
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    payment_status = models.CharField(max_length=20, choices=PAYMENT_STATUS_CHOICES, default='unpaid')
+    
+    # Payment proof
+    payment_proof = models.ImageField(upload_to='payment_proofs/', blank=True, null=True)
+    payment_details = models.TextField(blank=True, help_text='Additional payment information')
+    
+    # Bank/Mobile details (if provided separately)
+    sender_account_name = models.CharField(max_length=150, blank=True, null=True)
+    sender_account_number = models.CharField(max_length=100, blank=True, null=True)
+    sender_bank = models.CharField(max_length=100, blank=True, null=True)
+    sender_phone = models.CharField(max_length=20, blank=True, null=True)
+    
+    # Timestamps
+    requested_at = models.DateTimeField(auto_now_add=True)
+    payment_made_at = models.DateTimeField(null=True, blank=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    verified_at = models.DateTimeField(null=True, blank=True)
+    
+    # Admin fields
+    verified_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='verified_recharges')
+    admin_notes = models.TextField(blank=True)
+    
+    class Meta:
+        ordering = ['-requested_at']
+        indexes = [
+            models.Index(fields=['transaction_id']),
+            models.Index(fields=['status', 'payment_status']),
+            models.Index(fields=['user', 'requested_at']),
+        ]
+    
+    def __str__(self):
+        return f"Recharge #{self.id} - {self.user.username} - ETB {self.amount}"
+    
+    def save(self, *args, **kwargs):
+        # Generate transaction ID if not provided
+        if not self.transaction_id:
+            timestamp = timezone.now().strftime('%Y%m%d%H%M%S')
+            random_str = ''.join(random.choices(string.digits, k=6))
+            self.transaction_id = f"RCH{timestamp}{random_str}"
+        
+        # Calculate total amount
+        if not self.total_amount:
+            self.total_amount = self.amount + self.fee
+        
+        super().save(*args, **kwargs)
+    
+    def mark_as_paid(self, proof_image=None, details=None):
+        """Mark recharge as paid by user"""
+        self.payment_status = 'paid'
+        self.payment_made_at = timezone.now()
+        
+        if proof_image:
+            self.payment_proof = proof_image
+        
+        if details:
+            self.payment_details = details
+        
+        self.save()
+    
+    def approve(self, admin_user):
+        """Approve recharge request"""
+        if self.status == 'pending' and self.payment_status == 'paid':
+            self.status = 'completed'
+            self.verified_by = admin_user
+            self.verified_at = timezone.now()
+            self.processed_at = timezone.now()
+            
+            # Update user balance
+            profile = Profile.objects.filter(user=self.user).first()
+            if profile:
+                profile.balance += self.amount
+                profile.available_balance += self.amount
+                profile.save()
+            
+            # Create transaction record
+            Transaction.objects.create(
+                customer=self.user,
+                type='deposit',
+                amount=self.amount,
+                status='success',
+                account_number=profile.account_number if profile else None
+            )
+            
+            self.save()
+            return True
+        return False
+    
+    def reject(self, admin_user, notes=None):
+        """Reject recharge request"""
+        self.status = 'failed'
+        self.verified_by = admin_user
+        self.verified_at = timezone.now()
+        
+        if notes:
+            self.admin_notes = notes
+        
+        self.save()
+        return True
+    
+    @property
+    def is_pending_payment(self):
+        return self.status == 'pending' and self.payment_status == 'unpaid'
+    
+    @property
+    def is_ready_for_verification(self):
+        return self.status == 'pending' and self.payment_status == 'paid'
+
+
+class RechargeNotification(models.Model):
+    """Notifications for recharge status updates"""
+    recharge = models.ForeignKey(RechargeRequest, on_delete=models.CASCADE, related_name='notifications')
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    message = models.TextField()
+    notification_type = models.CharField(max_length=50, choices=[
+        ('payment_required', 'Payment Required'),
+        ('payment_received', 'Payment Received'),
+        ('approved', 'Recharge Approved'),
+        ('rejected', 'Recharge Rejected'),
+        ('processing', 'Processing'),
+    ])
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"Notification for {self.recharge.transaction_id}"
+
 
 # =======================
 # TASKS & REWARDS
@@ -154,17 +429,20 @@ class Task(models.Model):
     def __str__(self):
         return self.name
 
+
 class TaskReward(models.Model):
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE)
     task = models.ForeignKey(Task, on_delete=models.CASCADE)
     reward_amount = models.DecimalField(max_digits=10, decimal_places=2)
     date = models.DateField(auto_now_add=True)
 
+
 class InviteReward(models.Model):
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="invite_rewards")
     invited_user = models.ForeignKey(User, on_delete=models.CASCADE)
     reward_amount = models.DecimalField(max_digits=10, decimal_places=2, default=12.5)
     date = models.DateField(auto_now_add=True)
+
 
 class Commission(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -173,7 +451,8 @@ class Commission(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"Level {self.level} - {self.user.username} - {self.amount}"
+        return f"Level {self.level} - {self.user.phone} - {self.amount}"
+
 
 # =======================
 # VIP & INVESTMENT
@@ -194,6 +473,7 @@ class VIP(models.Model):
     def __str__(self):
         return self.title
 
+
 class UserVIP(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     vip = models.ForeignKey(VIP, on_delete=models.CASCADE)
@@ -205,6 +485,7 @@ class UserVIP(models.Model):
             return True
         return timezone.now() >= self.last_claim_time + timedelta(hours=24)
 
+
 class Investment(models.Model):
     customer = models.ForeignKey(Profile, on_delete=models.CASCADE)
     invested_on = models.DateTimeField(default=timezone.now)
@@ -214,6 +495,7 @@ class Investment(models.Model):
     def calculate_profit(self):
         days = (timezone.now().date() - self.invested_on.date()).days
         return self.amount * (self.daily_profit_rate * days)
+
 
 # =======================
 # ORDERS & PAYMENTS
@@ -233,16 +515,13 @@ class Order(models.Model):
     def __str__(self):
         return f"Order #{self.id} - {self.customer}"
 
+
 class PaymentProof(models.Model):
     order = models.OneToOneField(Order, on_delete=models.CASCADE, related_name="payment_proof")
     transaction_id = models.CharField(max_length=100, blank=True, null=True)
     receipt = models.ImageField(upload_to="receipts/", blank=True, null=True)
     submitted_at = models.DateTimeField(auto_now_add=True)
     verified = models.BooleanField(default=False)
-
-# =======================
-# INVITE LOG
-# =======================
 
 
 # =======================
@@ -261,20 +540,19 @@ class Message(models.Model):
     def __str__(self):
         return f"{self.sender}: {self.content[:20]}"
 
+
 class CustomerMessage(models.Model):
-    name = models.CharField(max_length=100)
     phone = models.CharField(max_length=20)
     message = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.name} ({self.phone})"
+        return f"{self.phone} "
 
 
-
-
-
-
+# =======================
+# GIFT CODES
+# =======================
 
 class GiftCode(models.Model):
     """
@@ -306,7 +584,92 @@ class GiftRedemption(models.Model):
         unique_together = ('code', 'user')  # one redemption per user
 
     def __str__(self):
-        return f"{self.user.username} - {self.amount}"
+        return f"{self.user.phone} - {self.amount}"
 
 
-   
+# =======================
+# MAIN PROJECT MODEL
+# =======================
+
+class MainProject(models.Model):
+    STATUS_CHOICES = [
+        ('available', 'Available'),
+        ('sold_out', 'Sold Out'),
+        ('coming_soon', 'Coming Soon'),
+    ]
+    
+    title = models.CharField(max_length=200)
+    description = models.TextField()
+    short_description = models.CharField(max_length=300, blank=True)
+    
+    # Investment details
+    price = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
+    daily_income = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
+    cycle_days = models.IntegerField(default=30, validators=[MinValueValidator(1)])
+    total_income = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
+    
+    # Inventory
+    total_units = models.IntegerField(default=1, validators=[MinValueValidator(1)])
+    available_units = models.IntegerField(default=1, validators=[MinValueValidator(0)])
+    
+    # Status
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='available')
+    is_featured = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    
+    # Images
+    image_url = models.URLField(blank=True, null=True)
+    thumbnail_url = models.URLField(blank=True, null=True)
+    
+    # SEO
+    slug = models.SlugField(unique=True, blank=True)
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-is_featured', '-created_at']
+        verbose_name = 'Main Project'
+        verbose_name_plural = 'Main Projects'
+    
+    def __str__(self):
+        return self.title
+    
+    def save(self, *args, **kwargs):
+        # Calculate total income if not set
+        if not self.total_income or self.total_income == 0:
+            self.total_income = self.daily_income * self.cycle_days
+        
+        # Generate slug if not provided
+        if not self.slug:
+            from django.utils.text import slugify
+            self.slug = slugify(self.title)
+        
+        # Update status based on availability
+        if self.available_units <= 0:
+            self.status = 'sold_out'
+        elif self.status == 'sold_out' and self.available_units > 0:
+            self.status = 'available'
+        
+        super().save(*args, **kwargs)
+    
+    @property
+    def remaining_units(self):
+        return max(0, self.available_units)
+    
+    @property
+    def is_available(self):
+        return self.status == 'available' and self.available_units > 0 and self.is_active
+    
+    @property
+    def investment_summary(self):
+        return {
+            'price': float(self.price),
+            'daily_income': float(self.daily_income),
+            'cycle_days': self.cycle_days,
+            'total_income': float(self.total_income),
+            'available_units': self.available_units,
+            'total_units': self.total_units,
+            'is_available': self.is_available,
+        }

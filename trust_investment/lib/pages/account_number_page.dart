@@ -36,7 +36,7 @@ class _AccountNumberPageState extends State<AccountNumberPage> {
 
     try {
       // Use ApiService with the token passed from previous page
-      final success = await ApiService.updateAccountNumber(
+      final success = await ApiService.accountnumberUpdate(
         token: widget.token,
         newAccountNumber: newAccount,
       );
