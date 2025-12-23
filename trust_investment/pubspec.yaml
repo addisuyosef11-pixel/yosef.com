@@ -27,6 +27,7 @@ dependencies:
   pushable_button: ^0.0.4
   shimmer: ^3.0.0
   intl_phone_field: ^3.0.1
+  clipboard: ^0.1.3
   
 
  
@@ -44,21 +45,17 @@ flutter:
     
   # Assets
   assets:
-    - assets/images/deposit_2.jpg
-    - assets/images/vip_1.jpg
-    - assets/images/vip_2.jpg
-    - assets/images/vip_3.jpg
-    - assets/images/vip_4.jpg
-    - assets/images/vip_5.jpg
-    - assets/images/vip_6.jpg
-    - assets/images/vip_7.jpg
-    - assets/images/investment_management.jpg
-    - assets/images/telegram_banner.jpg
-    - assets/images/withdraw_banner.jpg
-    - assets/images/invite_friend.jpg
-    - assets/images/buy_vip.jpg
-    - assets/images/calander_1.jpg
-    - assets/images/lucky_wheal.jpg
-    - assets/images/order_now.jpg
-    - assets/images/task_1.jpg
-    - assets/images/gift_box.jpg
+  
+   - assets/images/car_1.jpg
+   - assets/images/car_2.jpg
+   - assets/images/car_3.jpg
+   - assets/images/car_4.jpg
+   - assets/images/car_5.jpg
+   - assets/images/car_6.jpg
+   - assets/images/car_7.jpg
+   - assets/images/car_8.jpg
+   - assets/images/logo_top.jpg
+   - assets/images/car.jpg
+  
+  
+  

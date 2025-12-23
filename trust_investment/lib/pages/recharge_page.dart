@@ -1,11 +1,10 @@
 import 'dart:async';
 import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:image_picker/image_picker.dart';
-
+import 'package:flutter/foundation.dart';
 import 'api_service.dart';
 
 class RechargePage extends StatefulWidget {
@@ -25,59 +24,43 @@ class RechargePage extends StatefulWidget {
 class _RechargePageState extends State<RechargePage> {
   int _step = 0;
 
-  // Colors from first style
-  static const Color primaryColor = Color(0xFF9C27B0);
-  static const Color secondaryColor = Color(0xFF7B1FA2);
-  static const Color orangeColor = Color(0xFFFF9800);
-  static const Color greenColor = Color(0xFF4CAF50);
-  static const Color blueColor = Color(0xFF42A5F5);
+  // Colors matching HomePage
+  static const Color primaryColor = Color(0xFF8B5CF6);
+  static const Color secondaryColor = Color(0xFF7C3AED);
+  static const Color gradientStart = Color(0xFF8B5CF6);
+  static const Color gradientEnd = Color(0xFF6D28D9);
+  static const Color orangeColor = Color(0xFFFF8C00);
+  static const Color greenColor = Color(0xFF22C55E);
   static const Color redColor = Color(0xFFEF5350);
-  static const Color gradientStart = Color(0xFF9C27B0);
-  static const Color gradientEnd = Color(0xFF7B1FA2);
   
-  static const double _cardWidth = 620;
   static const int _countdownMinutes = 15;
   static const double _minDeposit = 10;
 
-  // deposit controls
+  // Deposit controls
   final TextEditingController _amountController = TextEditingController();
-  final List<int> _quickAmounts = [
-    10,
-    50,
-    100,
-    500,
-    894,
-    1235,
-    1798,
-    2500,
-    4789,
-    5734,
-    6300,
-    8000,
-    12700
-  ];
+  final List<int> _quickAmounts = [10, 50, 100, 500, 1000, 2000, 5000, 10000];
   String? _amountError;
 
-  // payment methods
+  // Payment methods
   bool _loadingMethods = true;
   List<Map<String, dynamic>> _methods = [];
   Map<String, dynamic>? _selectedMethod;
 
-  // upload proof
+  // Upload proof
   File? _pickedImage;
+  XFile? _pickedXFile;
   bool _submitting = false;
   final TextEditingController _senderNameCtrl = TextEditingController();
   final TextEditingController _transactionCtrl = TextEditingController();
 
-  // countdown
+  // Countdown
   Timer? _countdownTimer;
   Duration _expiresIn = Duration.zero;
 
-  // spinner overlay for step-transitions
+  // Spinner overlay
   bool _showTransitionSpinner = false;
-  final Color _spinnerColor = primaryColor;
 
-  // balance from API
+  // Balance from API
   double _balance = 0.0;
   bool _loadingBalance = true;
 
@@ -98,7 +81,6 @@ class _RechargePageState extends State<RechargePage> {
   }
 
   // ---------- API calls ----------
-
   Future<void> _fetchBalanceAndMethods() async {
     setState(() {
       _loadingBalance = true;
@@ -162,8 +144,7 @@ class _RechargePageState extends State<RechargePage> {
     }
   }
 
-  // ---------- helpers ----------
-
+  // ---------- Helpers ----------
   String? _bankLogoForMethod(Map<String, dynamic> method) {
     final name = (method['name'] ?? '').toString().toLowerCase();
     final code = (method['code'] ?? '').toString().toLowerCase();
@@ -244,11 +225,15 @@ class _RechargePageState extends State<RechargePage> {
 
   void _copyToClipboard(String text, [String? label]) {
     Clipboard.setData(ClipboardData(text: text));
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${label ?? "Copied"} to clipboard')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${label ?? "Copied"} to clipboard'),
+        backgroundColor: primaryColor,
+      ),
+    );
   }
 
-  // ---------- step transitions ----------
-
+  // ---------- Step transitions ----------
   Future<void> _toPaymentSelection() async {
     if (!_validateDeposit()) return;
 
@@ -268,13 +253,15 @@ class _RechargePageState extends State<RechargePage> {
 
   Future<void> _toPaymentProcess() async {
     if (_selectedMethod == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a bank')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a bank'), backgroundColor: Colors.red),
+      );
       return;
     }
 
     if (!_methodIsAvailable(_selectedMethod!)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Selected bank is unavailable')),
+        const SnackBar(content: Text('Selected bank is unavailable'), backgroundColor: Colors.red),
       );
       return;
     }
@@ -295,17 +282,28 @@ class _RechargePageState extends State<RechargePage> {
     final picker = ImagePicker();
     final XFile? file = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
     if (file != null) {
-      setState(() => _pickedImage = File(file.path));
+      setState(() {
+        _pickedXFile = file;
+        if (!kIsWeb) {
+          _pickedImage = File(file.path);
+        } else {
+          _pickedImage = null;
+        }
+      });
     }
   }
 
   Future<void> _submitRecharge() async {
-    if (_pickedImage == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please upload proof of transfer")));
+    if (_pickedXFile == null && _pickedImage == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please upload proof of transfer"), backgroundColor: Colors.red),
+      );
       return;
     }
     if (_senderNameCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter sender account name")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please enter sender account name"), backgroundColor: Colors.red),
+      );
       return;
     }
 
@@ -315,19 +313,19 @@ class _RechargePageState extends State<RechargePage> {
     });
 
     try {
-      final apiFuture = ApiService.recharge(
+      dynamic proofFile;
+      if (kIsWeb) {
+        proofFile = _pickedXFile;
+      } else {
+        proofFile = _pickedImage;
+      }
+
+      final result = await ApiService.recharge(
         token: widget.token,
         amount: _amountController.text.trim(),
         paymentMethod: _selectedMethod?['id']?.toString(),
-        proof: _pickedImage,
+        proof: proofFile,
       );
-
-      final results = await Future.wait([
-        apiFuture,
-        Future.delayed(const Duration(seconds: 3)),
-      ]);
-
-      final result = results[0] as Map<String, dynamic>?;
 
       if (result != null && (result['success'] == true || (result['message'] != null))) {
         try {
@@ -339,11 +337,15 @@ class _RechargePageState extends State<RechargePage> {
         if (mounted) setState(() => _step = 3);
       } else {
         final msg = result?['message'] ?? 'Recharge failed';
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg.toString()), backgroundColor: Colors.red),
+        );
       }
     } catch (e) {
       debugPrint('Error submitting recharge: $e');
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error submitting recharge')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Error submitting recharge'), backgroundColor: Colors.red),
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -354,165 +356,124 @@ class _RechargePageState extends State<RechargePage> {
     }
   }
 
-  // ---------- UI building with first style colors ----------
-
-  Widget _buildHeaderCard() {
+  // ---------- UI Components ----------
+  Widget _buildHeader() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.fromLTRB(16, 50, 16, 20),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
           colors: [gradientStart, gradientEnd],
         ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.purple.withOpacity(0.3),
-            blurRadius: 15,
-            offset: const Offset(0, 8),
-          ),
-        ],
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(24),
+          bottomRight: Radius.circular(24),
+        ),
       ),
-      child: Stack(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Positioned(
-            top: -30,
-            right: -30,
-            child: Container(
-              width: 100,
-              height: 100,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withOpacity(0.1),
-              ),
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          Row(
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(Icons.account_balance_wallet, color: Colors.white, size: 20),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        _step == 0 ? 'Deposit Funds' : 
-                        _step == 1 ? 'Select Method' : 
-                        _step == 2 ? 'Complete Payment' : 'Success',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
+              IconButton(
+                icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+                onPressed: () => Navigator.pop(context),
+              ),
+              Expanded(
+                child: Text(
+                  _step == 0 ? 'Deposit Funds' : 
+                  _step == 1 ? 'Select Bank' : 
+                  _step == 2 ? 'Complete Payment' : 'Success',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
                   ),
-                ],
+                  textAlign: TextAlign.center,
+                ),
               ),
-              const SizedBox(height: 20),
-              Text(
-                'Current Balance',
-                style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 14),
-              ),
-              const SizedBox(height: 4),
-              _loadingBalance
-                  ? const SizedBox(
-                      height: 40,
-                      child: Center(
-                        child: CircularProgressIndicator(color: Colors.white),
-                      ),
-                    )
-                  : Text(
-                      '${_balance.toStringAsFixed(0)} Br',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 36,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-              const SizedBox(height: 16),
+              const SizedBox(width: 48), // For balance alignment
             ],
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildWaveCard({required Widget child, Color? gradientColor1, Color? gradientColor2}) {
-    return Container(
-      width: double.infinity,
-      height: 160,
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            gradientColor1 ?? const Color(0xFFFFD54F),
-            gradientColor2 ?? const Color(0xFFFF9800),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: (gradientColor1 ?? Colors.orange).withOpacity(0.3),
-            blurRadius: 15,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: ClipRRect(
-              borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
-              child: CustomPaint(
-                size: const Size(double.infinity, 60),
-                painter: WavePainter(),
-              ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Current Balance',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.8),
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                _loadingBalance
+                    ? const Center(
+                        child: SizedBox(
+                          height: 30,
+                          width: 30,
+                          child: CircularProgressIndicator(color: Colors.white),
+                        ),
+                      )
+                    : Text(
+                        '${_balance.toStringAsFixed(0)} Br',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+              ],
             ),
           ),
-          Center(child: child),
         ],
       ),
     );
   }
 
-  Widget _roundedWhiteCard({required Widget child, EdgeInsets? padding}) => Container(
-        margin: const EdgeInsets.symmetric(horizontal: 16),
-        child: Card(
-          color: Colors.white,
-          elevation: 8,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          child: Padding(padding: padding ?? const EdgeInsets.all(24.0), child: child),
-        ),
-      );
+  Widget _buildWhiteCard({required Widget child, EdgeInsets? padding}) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: padding ?? const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
 
   // Step 0: Deposit page
   Widget _depositPage() {
-    return Stack(
+    return Column(
       children: [
-        Column(children: [
-          _buildHeaderCard(),
-          const SizedBox(height: 24),
-          _roundedWhiteCard(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Enter Amount (Br):', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        _buildHeader(),
+        const SizedBox(height: 16),
+        _buildWhiteCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Enter Amount (Br)',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF333333),
+                ),
+              ),
               const SizedBox(height: 12),
               TextField(
                 controller: _amountController,
@@ -531,65 +492,83 @@ class _RechargePageState extends State<RechargePage> {
               if (_amountError != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 8.0),
-                  child: Text(_amountError!, style: const TextStyle(color: Colors.red)),
+                  child: Text(
+                    _amountError!,
+                    style: const TextStyle(color: Colors.red),
+                  ),
                 ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: _showTransitionSpinner ? null : _toPaymentSelection,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: primaryColor,
+                    backgroundColor: orangeColor,
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: const Text(
-                    'Proceed to Deposit',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
+                  child: _showTransitionSpinner
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(color: Colors.white),
+                        )
+                      : const Text(
+                          'Continue',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
                 ),
               ),
-              const SizedBox(height: 24),
-              const Text('Quick Select:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 20),
+              const Text(
+                'Quick Select',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF333333),
+                ),
+              ),
               const SizedBox(height: 12),
               Wrap(
                 spacing: 10,
                 runSpacing: 10,
                 children: _quickAmounts.map((amt) {
                   final bool selected = _amountController.text.trim() == amt.toString();
-                  return InkWell(
+                  return GestureDetector(
                     onTap: () => _pickQuickAmount(amt),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 14),
+                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: selected ? orangeColor.withOpacity(0.1) : Colors.white,
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                          color: selected ? greenColor : const Color(0xFF8FD9C7),
-                          width: selected ? 2.5 : 1.2,
+                          color: selected ? orangeColor : Colors.grey[300]!,
+                          width: selected ? 2 : 1,
                         ),
                       ),
                       child: Text(
                         '$amt Br',
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
-                          color: selected ? greenColor : Colors.black87,
+                          color: selected ? orangeColor : Colors.black87,
                         ),
                       ),
                     ),
                   );
                 }).toList(),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: Colors.blue.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.blue.withOpacity(0.1)),
                 ),
                 child: const Column(
@@ -597,13 +576,13 @@ class _RechargePageState extends State<RechargePage> {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.info_outline, color: Colors.blue, size: 18),
-                        SizedBox(width: 8),
+                        Icon(Icons.info_outline, color: Colors.blue, size: 16),
+                        SizedBox(width: 6),
                         Text(
                           'Deposit Information',
                           style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
                             color: Colors.blue,
                           ),
                         ),
@@ -612,133 +591,143 @@ class _RechargePageState extends State<RechargePage> {
                     SizedBox(height: 8),
                     Text(
                       '• Minimum deposit: 10 Br\n'
-                      '• Deposits are processed within 5-30 minutes\n'
-                      '• Contact support if deposit not received within 1 hour\n'
-                      '• Always keep your transaction reference',
+                      '• Processing: 5-30 minutes\n'
+                      '• Contact support if not received within 1 hour',
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.grey,
+                        height: 1.5,
                       ),
                     ),
                   ],
                 ),
               ),
-            ]),
+            ],
           ),
-        ]),
-        if (_showTransitionSpinner) _buildOverlaySpinner(),
+        ),
       ],
     );
   }
 
   // Step 1: Payment selection
   Widget _paymentSelectionPage() {
-    return Stack(
+    return Column(
       children: [
-        Column(children: [
-          _buildHeaderCard(),
-          const SizedBox(height: 24),
-          _roundedWhiteCard(
-            child: Column(children: [
+        _buildHeader(),
+        const SizedBox(height: 16),
+        _buildWhiteCard(
+          child: Column(
+            children: [
               Container(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
                     colors: [primaryColor, secondaryColor],
                   ),
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                child: Column(children: [
-                  Text(
-                    'Amount to Deposit: ${_amountController.text.trim()} Br',
-                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text('Select a Bank:', style: TextStyle(color: Colors.white70)),
-                ]),
+                child: Column(
+                  children: [
+                    Text(
+                      'Amount: ${_amountController.text.trim()} Br',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Select payment method',
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               _loadingMethods
                   ? Padding(
                       padding: const EdgeInsets.symmetric(vertical: 20),
-                      child: Center(child: SpinKitCircle(color: _spinnerColor, size: 40)),
+                      child: Center(
+                        child: SpinKitCircle(color: primaryColor, size: 40),
+                      ),
                     )
                   : Column(
                       children: [
-                        Column(
-                          children: _methods.map((method) {
-                            final logo = _bankLogoForMethod(method);
-                            final available = _methodIsAvailable(method);
-                            final isSelected = _selectedMethod != null && _selectedMethod!['id'] == method['id'];
+                        ..._methods.map((method) {
+                          final logo = _bankLogoForMethod(method);
+                          final available = _methodIsAvailable(method);
+                          final isSelected = _selectedMethod != null && _selectedMethod!['id'] == method['id'];
 
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              elevation: 3,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                side: BorderSide(
-                                  color: isSelected ? primaryColor : Colors.transparent,
-                                  width: isSelected ? 2 : 0,
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            elevation: 2,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: BorderSide(
+                                color: isSelected ? orangeColor : Colors.transparent,
+                                width: isSelected ? 2 : 0,
+                              ),
+                            ),
+                            child: ListTile(
+                              leading: logo != null
+                                  ? Image.asset(
+                                      logo,
+                                      width: 40,
+                                      height: 40,
+                                      errorBuilder: (c, e, s) {
+                                        return CircleAvatar(
+                                          backgroundColor: primaryColor.withOpacity(0.1),
+                                          child: const Icon(Icons.account_balance, color: primaryColor, size: 20),
+                                        );
+                                      },
+                                    )
+                                  : CircleAvatar(
+                                      backgroundColor: primaryColor.withOpacity(0.1),
+                                      child: const Icon(Icons.account_balance, color: primaryColor, size: 20),
+                                    ),
+                              title: Text(
+                                method['name'] ?? 'Payment Method',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: isSelected ? orangeColor : Colors.black,
                                 ),
                               ),
-                              child: ListTile(
-                                leading: logo != null
-                                    ? Image.asset(
-                                        logo,
-                                        width: 44,
-                                        height: 44,
-                                        errorBuilder: (c, e, s) {
-                                          return CircleAvatar(
-                                            backgroundColor: primaryColor.withOpacity(0.1),
-                                            child: const Icon(Icons.account_balance, color: primaryColor),
-                                          );
-                                        },
-                                      )
-                                    : CircleAvatar(
-                                        backgroundColor: primaryColor.withOpacity(0.1),
-                                        child: const Icon(Icons.account_balance, color: primaryColor),
-                                      ),
-                                title: Text(
-                                  method['name'] ?? 'Payment Method',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: isSelected ? primaryColor : Colors.black,
-                                  ),
+                              subtitle: Text(
+                                available ? 'Available' : 'Unavailable',
+                                style: TextStyle(
+                                  color: available ? greenColor : redColor,
+                                  fontSize: 12,
                                 ),
-                                subtitle: Text(
-                                  available ? 'Available' : 'Unavailable',
-                                  style: TextStyle(
-                                    color: available ? greenColor : redColor,
-                                  ),
-                                ),
-                                trailing: isSelected
-                                    ? const Icon(Icons.check_circle, color: primaryColor)
-                                    : const Icon(Icons.arrow_forward_ios, size: 16),
-                                onTap: () {
-                                  setState(() {
-                                    _selectedMethod = method;
-                                  });
-                                },
                               ),
-                            );
-                          }).toList(),
-                        ),
-                        const SizedBox(height: 24),
+                              trailing: isSelected
+                                  ? const Icon(Icons.check_circle, color: orangeColor)
+                                  : const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+                              onTap: () {
+                                setState(() {
+                                  _selectedMethod = method;
+                                });
+                              },
+                            ),
+                          );
+                        }).toList(),
+                        const SizedBox(height: 20),
                         Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Expanded(
-                              child: ElevatedButton(
+                              child: OutlinedButton(
                                 onPressed: _showTransitionSpinner ? null : () => setState(() => _step = 0),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.grey[300],
-                                  foregroundColor: Colors.grey[700],
-                                  padding: const EdgeInsets.symmetric(vertical: 16),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(color: Colors.grey),
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
                                 ),
-                                child: const Text('Back'),
+                                child: const Text(
+                                  'Back',
+                                  style: TextStyle(color: Colors.grey),
+                                ),
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -746,27 +735,34 @@ class _RechargePageState extends State<RechargePage> {
                               child: ElevatedButton(
                                 onPressed: _showTransitionSpinner ? null : _toPaymentProcess,
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: primaryColor,
-                                  padding: const EdgeInsets.symmetric(vertical: 16),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                ),
-                                child: const Text(
-                                  'Proceed to Payment',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
+                                  backgroundColor: orangeColor,
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
                                   ),
                                 ),
+                                child: _showTransitionSpinner
+                                    ? const SizedBox(
+                                        height: 20,
+                                        width: 20,
+                                        child: CircularProgressIndicator(color: Colors.white),
+                                      )
+                                    : const Text(
+                                        'Continue',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.white,
+                                        ),
+                                      ),
                               ),
                             ),
                           ],
-                        )
+                        ),
                       ],
                     ),
-            ]),
+            ],
           ),
-        ]),
-        if (_showTransitionSpinner) _buildOverlaySpinner(),
+        ),
       ],
     );
   }
@@ -779,88 +775,85 @@ class _RechargePageState extends State<RechargePage> {
     final accountNumber = bank['account'] ?? bank['number'] ?? '0000000000';
     final orderNumber = 'TRX${DateTime.now().millisecondsSinceEpoch % 1000000}';
 
-    return Stack(
+    return Column(
       children: [
-        Column(children: [
-          _buildHeaderCard(),
-          const SizedBox(height: 24),
-          
-          // Timer Card
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: _expiresIn.inMinutes < 5 ? Colors.orange.withOpacity(0.1) : Colors.blue.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: _expiresIn.inMinutes < 5 ? Colors.orange : Colors.blue,
-                width: 1,
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.timer,
-                  color: _expiresIn.inMinutes < 5 ? Colors.orange : Colors.blue,
-                  size: 24,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Time Remaining',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                      Text(
-                        _formatDuration(_expiresIn),
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: _expiresIn.inMinutes < 5 ? Colors.orange : Colors.blue,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Text(
-                  'Complete within 15 minutes',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ],
+        _buildHeader(),
+        const SizedBox(height: 16),
+        // Timer Card
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: _expiresIn.inMinutes < 5 ? Colors.orange.withOpacity(0.1) : Colors.blue.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: _expiresIn.inMinutes < 5 ? Colors.orange : Colors.blue,
+              width: 1,
             ),
           ),
-          
-          const SizedBox(height: 16),
-          
-          _roundedWhiteCard(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Payment Instructions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 20),
-              
-              // Bank details in the first style format
+          child: Row(
+            children: [
+              Icon(
+                Icons.timer,
+                color: _expiresIn.inMinutes < 5 ? Colors.orange : Colors.blue,
+                size: 24,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Time Remaining',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                    Text(
+                      _formatDuration(_expiresIn),
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: _expiresIn.inMinutes < 5 ? Colors.orange : Colors.blue,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                'Complete within 15 min',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _buildWhiteCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Payment Instructions',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF333333),
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Bank details
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey[200]!),
                 ),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildDetailItem('Bank Name', bankName, icon: Icons.account_balance),
                     const SizedBox(height: 12),
@@ -874,13 +867,12 @@ class _RechargePageState extends State<RechargePage> {
                   ],
                 ),
               ),
-              
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: Colors.yellow.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.yellow.withOpacity(0.3)),
                 ),
                 child: const Text(
@@ -891,31 +883,43 @@ class _RechargePageState extends State<RechargePage> {
                   ),
                 ),
               ),
-              
-              const SizedBox(height: 24),
-              const Text('Sender Account Name:', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 20),
+              const Text(
+                'Sender Account Name',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 8),
               TextField(
                 controller: _senderNameCtrl,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(8)),
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey[300]!),
                   ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 ),
               ),
               const SizedBox(height: 16),
-              const Text('Transaction/FT Number:', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text(
+                'Transaction/FT Number',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 8),
               TextField(
                 controller: _transactionCtrl,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(8)),
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey[300]!),
                   ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 ),
               ),
               const SizedBox(height: 16),
-              const Text('Upload Proof (JPG, PNG):', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text(
+                'Upload Proof (JPG, PNG)',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 8),
               GestureDetector(
                 onTap: _pickImage,
@@ -925,11 +929,11 @@ class _RechargePageState extends State<RechargePage> {
                     color: Colors.grey[100],
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: Colors.grey.shade300,
+                      color: Colors.grey[300]!,
                       width: 1.5,
                     ),
                   ),
-                  child: _pickedImage == null
+                  child: (_pickedImage == null && _pickedXFile == null)
                       ? const Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
@@ -939,39 +943,49 @@ class _RechargePageState extends State<RechargePage> {
                               'Tap to upload payment proof',
                               style: TextStyle(color: Colors.grey),
                             ),
-                            Text(
-                              '(Screenshot or receipt)',
-                              style: TextStyle(color: Colors.grey, fontSize: 12),
-                            ),
                           ],
                         )
                       : ClipRRect(
                           borderRadius: BorderRadius.circular(12),
-                          child: Image.file(
-                            _pickedImage!,
-                            fit: BoxFit.cover,
-                            width: double.infinity,
-                          ),
+                          child: kIsWeb
+                              ? _pickedXFile != null
+                                  ? Image.network(
+                                      _pickedXFile!.path,
+                                      fit: BoxFit.cover,
+                                      width: double.infinity,
+                                    )
+                                  : const Center(child: Text('Image not available'))
+                              : _pickedImage != null
+                                  ? Image.file(
+                                      _pickedImage!,
+                                      fit: BoxFit.cover,
+                                      width: double.infinity,
+                                    )
+                                  : const Center(child: Text('Image not available')),
                         ),
                 ),
               ),
               const SizedBox(height: 24),
               _submitting
-                  ? Center(child: SpinKitCircle(color: _spinnerColor, size: 40))
+                  ? Center(
+                      child: SpinKitCircle(color: orangeColor, size: 40),
+                    )
                   : SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
                         onPressed: _submitRecharge,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: primaryColor,
+                          backgroundColor: orangeColor,
                           padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
                         child: const Text(
                           'Submit Payment',
                           style: TextStyle(
                             fontSize: 16,
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w600,
                             color: Colors.white,
                           ),
                         ),
@@ -980,21 +994,24 @@ class _RechargePageState extends State<RechargePage> {
               const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
-                child: ElevatedButton(
+                child: OutlinedButton(
                   onPressed: () => setState(() => _step = 1),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.grey[300],
-                    foregroundColor: Colors.grey[700],
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.grey),
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
-                  child: const Text('Back to Methods'),
+                  child: const Text(
+                    'Back',
+                    style: TextStyle(color: Colors.grey),
+                  ),
                 ),
               ),
-            ]),
+            ],
           ),
-        ]),
-        if (_showTransitionSpinner) _buildOverlaySpinner(),
+        ),
       ],
     );
   }
@@ -1003,7 +1020,7 @@ class _RechargePageState extends State<RechargePage> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.green.withOpacity(0.1),
+        color: Colors.green.withOpacity(0.05),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.green.withOpacity(0.2)),
       ),
@@ -1029,7 +1046,7 @@ class _RechargePageState extends State<RechargePage> {
                   value,
                   style: const TextStyle(
                     color: Colors.green,
-                    fontSize: 16,
+                    fontSize: 14,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -1047,147 +1064,106 @@ class _RechargePageState extends State<RechargePage> {
 
   // Step 3: success page
   Widget _successPage() {
-    return Column(children: [
-      _buildHeaderCard(),
-      const SizedBox(height: 40),
-      Center(
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16),
+    return Column(
+      children: [
+        _buildHeader(),
+        const SizedBox(height: 40),
+        _buildWhiteCard(
           padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 15,
-                offset: const Offset(0, 8),
+          child: Column(
+            children: [
+              Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  color: greenColor.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.check_circle,
+                  color: Colors.green,
+                  size: 50,
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Payment Submitted!',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Your deposit request has been received and is being processed.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.grey,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      color: Colors.blue[400],
+                      size: 24,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Verification usually takes 5-15 minutes during business hours.',
+                        style: TextStyle(
+                          color: Colors.blue[800],
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {
+                    _step = 0;
+                    _amountController.clear();
+                    _pickedImage = null;
+                    _pickedXFile = null;
+                    _senderNameCtrl.clear();
+                    _transactionCtrl.clear();
+                    _countdownTimer?.cancel();
+                    _expiresIn = Duration.zero;
+                  });
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: orangeColor,
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'Make Another Deposit',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
               ),
             ],
           ),
-          child: Column(children: [
-            Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                color: greenColor.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.check_circle,
-                color: Color(0xFF4CAF50),
-                size: 50,
-              ),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              '🎉 Payment Submitted Successfully!',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Your deposit request has been received and is being processed.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.grey,
-                fontSize: 14,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'You will receive a notification once your payment is verified.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.grey,
-                fontSize: 14,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.blue.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.info_outline,
-                    color: Colors.blue[400],
-                    size: 24,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'Verification usually takes 5-15 minutes during business hours.',
-                      style: TextStyle(
-                        color: Colors.blue[800],
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  _step = 0;
-                  _amountController.clear();
-                  _pickedImage = null;
-                  _senderNameCtrl.clear();
-                  _transactionCtrl.clear();
-                  _countdownTimer?.cancel();
-                  _expiresIn = Duration.zero;
-                });
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: primaryColor,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: const Text(
-                'Make Another Deposit',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-          ]),
         ),
-      ),
-    ]);
-  }
-
-  Widget _buildOverlaySpinner() {
-    return Positioned.fill(
-      child: Container(
-        color: Colors.black.withOpacity(0.5),
-        child: Center(
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: const [
-                CircularProgressIndicator(),
-                SizedBox(height: 16),
-                Text('Processing...'),
-              ],
-            ),
-          ),
-        ),
-      ),
+      ],
     );
   }
 
@@ -1212,53 +1188,42 @@ class _RechargePageState extends State<RechargePage> {
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          _step == 0 ? 'Deposit Funds' : 
-          _step == 1 ? 'Select Method' : 
-          _step == 2 ? 'Complete Payment' : 'Success',
-          style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
-        ),
-        centerTitle: true,
-      ),
-      body: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        child: Stack(
-          children: [
-            body,
-            if (_showTransitionSpinner) _buildOverlaySpinner(),
-          ],
-        ),
+      backgroundColor: const Color(0xFFF5F5F7),
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: body,
+          ),
+          if (_showTransitionSpinner)
+            Container(
+              color: Colors.black.withOpacity(0.5),
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SpinKitCircle(color: orangeColor, size: 40),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Processing...',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
-}
-
-class WavePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.white.withOpacity(0.2)
-      ..style = PaintingStyle.fill;
-
-    final path = Path()
-      ..moveTo(0, size.height * 0.6)
-      ..quadraticBezierTo(size.width * 0.25, size.height * 0.3, size.width * 0.5, size.height * 0.5)
-      ..quadraticBezierTo(size.width * 0.75, size.height * 0.7, size.width, size.height * 0.4)
-      ..lineTo(size.width, size.height)
-      ..lineTo(0, size.height)
-      ..close();
-
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

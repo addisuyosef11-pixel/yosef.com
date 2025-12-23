@@ -1,4 +1,3 @@
- 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'pages/home_page.dart';
@@ -8,6 +7,11 @@ import 'pages/signup_page.dart';
 import 'pages/api_service.dart';
 import 'pages/invite_page.dart';
 import 'pages/login_page.dart';
+import 'pages/income_page.dart';
+import 'pages/news_page.dart';
+import 'pages/team_page.dart';
+import 'pages/support_chat_page.dart';
+import 'pages/order_page.dart'; // Corrected path - added 'pages/'
 
 void main() {
   runApp(const MyApp());
@@ -22,17 +26,17 @@ class MyApp extends StatelessWidget {
       title: 'Trust Investment',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        primaryColor: Colors.green,
-        scaffoldBackgroundColor: Colors.blue.shade50,
+        primaryColor: const Color(0xFF8A2BE2), // Changed to purple
+        scaffoldBackgroundColor: const Color(0xFFF5F5F5),
         colorScheme: ColorScheme.light(
-          primary: Colors.green,
-          secondary: Colors.greenAccent.shade100,
+          primary: const Color(0xFF8A2BE2),
+          secondary: const Color(0xFF9B4DCA),
         ),
         textTheme: GoogleFonts.poppinsTextTheme(Theme.of(context).textTheme),
-        appBarTheme: AppBarTheme(
-          backgroundColor: Colors.green,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF8A2BE2),
           foregroundColor: Colors.white,
-          titleTextStyle: GoogleFonts.poppins(
+          titleTextStyle: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.bold,
             color: Colors.white,
@@ -40,6 +44,12 @@ class MyApp extends StatelessWidget {
         ),
       ),
       home: LoginPage(),
+      routes: {
+        '/main': (context) {
+          final token = ModalRoute.of(context)!.settings.arguments as String;
+          return MainNavigation(token: token);
+        },
+      },
     );
   }
 }
@@ -54,45 +64,98 @@ class MainNavigation extends StatefulWidget {
 
 class _MainNavigationState extends State<MainNavigation> {
   int _selectedIndex = 0;
-  late List<Widget> _pages;
 
-  @override
-  void initState() {
-    super.initState();
-    _pages = [
-      HomePage(token: widget.token),
-      VipProductsPage(token: widget.token),
-      InvitePage(token: widget.token),
-      ProfilePage(token: widget.token),
-    ];
-  }
-
-  void _onItemTapped(int index) {
-    setState(() => _selectedIndex = index);
+  // Get the current page based on selected index
+  Widget _getPage() {
+    switch (_selectedIndex) {
+      case 0:
+        return HomePage(token: widget.token);
+      case 1:
+        return OrderPage(
+          token: widget.token,
+          vipData: {}, // Pass empty list or fetch from somewhere
+        );
+      case 2:
+        return NewsPage(token: widget.token);
+      case 3:
+        return SupportChatPage(
+          token: widget.token,
+          userName: 'User', // You should pass actual username
+        );
+      case 4:
+        return TeamPage(token: widget.token);
+      case 5:
+        return ProfilePage(token: widget.token);
+      default:
+        return HomePage(token: widget.token);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _pages[_selectedIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        backgroundColor: Colors.white,
-        selectedItemColor: Colors.purple,
-        unselectedItemColor: Colors.grey,
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
-        selectedLabelStyle: GoogleFonts.poppins(fontWeight: FontWeight.w600),
-        unselectedLabelStyle: GoogleFonts.poppins(),
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.star), label: 'VIP'),
-          BottomNavigationBarItem(icon: Icon(Icons.card_giftcard), label: 'Invite'),
-          BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Profile'),
+      body: _getPage(),
+      bottomNavigationBar: _buildBottomNavigation(),
+    );
+  }
+
+  Widget _buildBottomNavigation() {
+    final items = [
+      {'icon': Icons.home, 'label': 'Home'},
+      {'icon': Icons.trending_up, 'label': 'Income'},
+      {'icon': Icons.article, 'label': 'News'},
+      {'icon': Icons.chat, 'label': 'Chat'},
+      {'icon': Icons.people, 'label': 'Team'},
+      {'icon': Icons.person, 'label': 'Me'},
+    ];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, -2),
+          ),
         ],
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: List.generate(items.length, (index) {
+              final item = items[index];
+              final isSelected = _selectedIndex == index;
+              return GestureDetector(
+                onTap: () {
+                  setState(() => _selectedIndex = index);
+                },
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      item['icon'] as IconData,
+                      color: isSelected ? const Color(0xFF8A2BE2) : Colors.grey,
+                      size: 24,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      item['label'] as String,
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: isSelected ? const Color(0xFF8A2BE2) : Colors.grey,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ),
+        ),
       ),
     );
   }
 }
-
-

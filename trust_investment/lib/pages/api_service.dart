@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class ApiService {
-  static const String baseUrl = "http://192.168.137.1:8000/api";
+  static const String baseUrl = "http://10.164.11.61:8000/api";
 
   // 🔹 HELPER: Get auth headers with "Token " prefix
   static Map<String, String> _authHeader(String token) {
@@ -21,6 +21,22 @@ class ApiService {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     };
+  }
+
+  // Helper to parse amount from dynamic value
+  static double _parseAmount(dynamic value) {
+    if (value == null) return 0.0;
+    
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) {
+      // Remove currency symbols and parse
+      final cleaned = value.replaceAll(RegExp(r'[^0-9.]'), '');
+      return double.tryParse(cleaned) ?? 0.0;
+    }
+    if (value is num) return value.toDouble();
+    
+    return 0.0;
   }
 
   /// 🔹 VERIFY OTP
@@ -52,22 +68,54 @@ class ApiService {
     }
   }
   
-  /// 🔹 GET RECHARGE (DEPOSIT) HISTORY
+  /// 🔹 GET RECHARGE (DEPOSIT) HISTORY - FIXED VERSION
   static Future<List<Map<String, dynamic>>> getRechargeHistory(String token) async {
-    final url = Uri.parse('$baseUrl/recharge/history/');
-    final res = await http.get(
-      url,
-      headers: {
-        'Authorization': 'Token $token',
-        'Content-Type': 'application/json',
-      },
-    );
+    try {
+      print('📥 Fetching recharge history...');
+      final url = Uri.parse('$baseUrl/recharge/history/');
+      
+      final res = await http.get(
+        url,
+        headers: {
+          'Authorization': 'Token $token',
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      );
 
-    if (res.statusCode == 200) {
-      final data = jsonDecode(res.body) as List;
-      return data.cast<Map<String, dynamic>>();
-    } else {
-      throw Exception('Failed to load recharge history');
+      print('📥 Recharge History Status: ${res.statusCode}');
+      print('📥 Recharge History Response: ${res.body}');
+
+      if (res.statusCode == 200) {
+        final dynamic data = jsonDecode(res.body);
+        
+        // Handle different response formats
+        if (data is List) {
+          return List<Map<String, dynamic>>.from(data);
+        } else if (data is Map) {
+          // Check common response structures
+          if (data['results'] is List) {
+            return List<Map<String, dynamic>>.from(data['results']);
+          } else if (data['data'] is List) {
+            return List<Map<String, dynamic>>.from(data['data']);
+          } else if (data['history'] is List) {
+            return List<Map<String, dynamic>>.from(data['history']);
+          } else if (data['recharges'] is List) {
+            return List<Map<String, dynamic>>.from(data['recharges']);
+          } else if (data['success'] == true && data['recharges'] is List) {
+            return List<Map<String, dynamic>>.from(data['recharges']);
+          }
+        }
+        
+        print('⚠️ Unusual recharge history format: $data');
+        return [];
+      } else {
+        print('❌ Failed to load recharge history: ${res.statusCode}');
+        return [];
+      }
+    } catch (e) {
+      print('❌ Recharge history error: $e');
+      return [];
     }
   }
   
@@ -114,12 +162,6 @@ class ApiService {
     return jsonDecode(response.body);
   }
   
-  /// 🔹 GET WITHDRAW HISTORY
-  static Future<List<Map<String, dynamic>>> getWithdrawHistory(String token) async {
-    // You already have getWithdrawals, but we can alias it
-    return await getWithdrawals(token);
-  }
-
   /// 🔹 GET AVIATOR HISTORY
   static Future<List<Map<String, dynamic>>> aviatorHistory(String token) async {
     final url = Uri.parse("$baseUrl/aviator/history/"); // Adjust endpoint if needed
@@ -179,7 +221,6 @@ class ApiService {
     return jsonDecode(response.body);
   }
   
-  
   static Future<Map<String, dynamic>> login({
     String? username,
     String? email,
@@ -225,33 +266,137 @@ class ApiService {
     }
   }
   
-  /// 🔹 PROFILE + BALANCE
-  static Future<Map<String, dynamic>> getProfile(String token) async {
-    final profileUrl = Uri.parse("$baseUrl/profile/");
-    final balanceUrl = Uri.parse("$baseUrl/balance/");
+  /// 🔹 GET BALANCE - COMPLETE FIXED VERSION
+  static Future<Map<String, dynamic>> getBalance(String token) async {
     try {
-      final responses = await Future.wait([
-        http.get(profileUrl, headers: {"Authorization": "Token $token", "Content-Type": "application/json"}),
-        http.get(balanceUrl, headers: {"Authorization": "Token $token", "Content-Type": "application/json"}),
-      ]);
+      print('💰 Fetching balance...');
+      final url = Uri.parse("$baseUrl/balance/");
+      
+      final res = await http.get(
+        url,
+        headers: {
+          "Authorization": "Token $token",
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+      );
 
-      final profileRes = responses[0];
-      final balanceRes = responses[1];
+      print('💰 Balance Response Status: ${res.statusCode}');
+      print('💰 Balance Response Body: ${res.body}');
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        
+        // Handle different response formats
+        if (data is Map) {
+          return {
+            'success': true,
+            'total': _parseAmount(data['balance'] ?? data['total_balance'] ?? data['total'] ?? 0),
+            'available': _parseAmount(data['available_balance'] ?? data['available'] ?? data['avail_balance'] ?? 0),
+            'frozen': _parseAmount(data['frozen_balance'] ?? data['frozen'] ?? data['locked_balance'] ?? 0),
+            'raw': data,
+          };
+        } else if (data is num) {
+          // If API returns just a number
+          return {
+            'success': true,
+            'total': _parseAmount(data),
+            'available': _parseAmount(data),
+            'frozen': 0,
+            'raw': data,
+          };
+        } else {
+          return {
+            'success': false,
+            'error': 'Invalid response format',
+            'total': 0,
+            'available': 0,
+            'frozen': 0,
+          };
+        }
+      } else if (res.statusCode == 401) {
+        return {
+          'success': false,
+          'error': 'Unauthorized - Invalid token',
+          'total': 0,
+          'available': 0,
+          'frozen': 0,
+        };
+      } else {
+        return {
+          'success': false,
+          'error': 'Failed to fetch balance: ${res.statusCode}',
+          'total': 0,
+          'available': 0,
+          'frozen': 0,
+        };
+      }
+    } catch (e) {
+      print('❌ Balance fetch error: $e');
+      return {
+        'success': false,
+        'error': 'Network error: $e',
+        'total': 0,
+        'available': 0,
+        'frozen': 0,
+      };
+    }
+  }
+  
+  /// 🔹 PROFILE + BALANCE (Alternative method)
+  static Future<Map<String, dynamic>> getProfile(String token) async {
+    try {
+      final profileUrl = Uri.parse("$baseUrl/profile/");
+      final balanceUrl = Uri.parse("$baseUrl/balance/");
+      
+      print('👤 Fetching profile...');
+      final profileRes = await http.get(
+        profileUrl, 
+        headers: {"Authorization": "Token $token", "Content-Type": "application/json"}
+      );
+      
+      print('💰 Fetching balance for profile...');
+      final balanceRes = await http.get(
+        balanceUrl, 
+        headers: {"Authorization": "Token $token", "Content-Type": "application/json"}
+      );
+
+      print('👤 Profile Status: ${profileRes.statusCode}');
+      print('💰 Balance Status: ${balanceRes.statusCode}');
 
       if (profileRes.statusCode == 200 && balanceRes.statusCode == 200) {
         final profileData = jsonDecode(profileRes.body);
         final balanceData = jsonDecode(balanceRes.body);
+        
         return {
           ...profileData,
-          'balance': balanceData['balance'] ?? 0,
-          'available_balance': balanceData['available_balance'] ?? 0,
-          'frozen_balance': balanceData['frozen_balance'] ?? 0,
+          'balance': _parseAmount(balanceData['balance'] ?? 0),
+          'available_balance': _parseAmount(balanceData['available_balance'] ?? 0),
+          'frozen_balance': _parseAmount(balanceData['frozen_balance'] ?? 0),
         };
+      } else {
+        print('⚠️ Profile or balance fetch failed');
+        // Try to get at least one
+        if (profileRes.statusCode == 200) {
+          final profileData = jsonDecode(profileRes.body);
+          return {
+            ...profileData,
+            'balance': 0,
+            'available_balance': 0,
+            'frozen_balance': 0,
+          };
+        } else if (balanceRes.statusCode == 200) {
+          final balanceData = jsonDecode(balanceRes.body);
+          return {
+            'balance': _parseAmount(balanceData['balance'] ?? 0),
+            'available_balance': _parseAmount(balanceData['available_balance'] ?? 0),
+            'frozen_balance': _parseAmount(balanceData['frozen_balance'] ?? 0),
+          };
+        }
+        throw Exception("Failed to fetch profile (${profileRes.statusCode}) or balance (${balanceRes.statusCode})");
       }
-      throw Exception(
-        "Failed to fetch profile (${profileRes.statusCode}) or balance (${balanceRes.statusCode})",
-      );
     } catch (e) {
+      print('⚠️ Network error fetching profile/balance: $e');
       throw Exception("⚠️ Network error fetching profile/balance: $e");
     }
   }
@@ -333,15 +478,90 @@ class ApiService {
     throw Exception("Failed to fetch commissions (${res.statusCode})");
   }
 
-  /// 🔹 WITHDRAWALS
+  /// 🔹 GET WITHDRAWALS - COMPLETE FIXED VERSION
   static Future<List<Map<String, dynamic>>> getWithdrawals(String token) async {
-    final url = Uri.parse("$baseUrl/withdraw-history/");
-    final res = await http.get(url, headers: {"Authorization": "Token $token"});
-    if (res.statusCode == 200) {
-      final data = jsonDecode(res.body);
-      if (data is List) return data.map((e) => Map<String, dynamic>.from(e)).toList();
+    try {
+      print('📤 Fetching withdrawal history...');
+      
+      // Try multiple possible endpoints
+      final endpoints = [
+        "$baseUrl/withdraw/history/",
+        "$baseUrl/withdraw-history/",
+        "$baseUrl/withdrawals/",
+        "$baseUrl/withdrawal/history/",
+        "$baseUrl/user/withdrawals/",
+      ];
+      
+      for (final endpoint in endpoints) {
+        try {
+          print('🔄 Trying endpoint: $endpoint');
+          final url = Uri.parse(endpoint);
+          final res = await http.get(
+            url,
+            headers: {
+              "Authorization": "Token $token",
+              "Content-Type": "application/json",
+              "Accept": "application/json",
+            },
+          ).timeout(Duration(seconds: 5));
+
+          print('📤 Withdrawal Response Status: ${res.statusCode}');
+          
+          if (res.statusCode == 200) {
+            print('📤 Withdrawal Response Body: ${res.body.length > 200 ? res.body.substring(0, 200) + '...' : res.body}');
+            
+            final dynamic data = jsonDecode(res.body);
+            
+            // Handle different response formats
+            if (data is List) {
+              print('✅ Found ${data.length} withdrawals (list format)');
+              return List<Map<String, dynamic>>.from(data);
+            } else if (data is Map) {
+              // Check common response structures
+              if (data['results'] is List) {
+                final results = List<Map<String, dynamic>>.from(data['results']);
+                print('✅ Found ${results.length} withdrawals (results format)');
+                return results;
+              } else if (data['data'] is List) {
+                final results = List<Map<String, dynamic>>.from(data['data']);
+                print('✅ Found ${results.length} withdrawals (data format)');
+                return results;
+              } else if (data['history'] is List) {
+                final results = List<Map<String, dynamic>>.from(data['history']);
+                print('✅ Found ${results.length} withdrawals (history format)');
+                return results;
+              } else if (data['withdrawals'] is List) {
+                final results = List<Map<String, dynamic>>.from(data['withdrawals']);
+                print('✅ Found ${results.length} withdrawals (withdrawals format)');
+                return results;
+              } else if (data['success'] == true && data['withdrawals'] is List) {
+                final results = List<Map<String, dynamic>>.from(data['withdrawals']);
+                print('✅ Found ${results.length} withdrawals (success-withdrawals format)');
+                return results;
+              } else if (data['transactions'] is List) {
+                final results = List<Map<String, dynamic>>.from(data['transactions']);
+                print('✅ Found ${results.length} withdrawals (transactions format)');
+                return results;
+              }
+            }
+            
+            print('⚠️ Unusual withdrawal history format for $endpoint');
+          } else if (res.statusCode == 404) {
+            print('❌ Endpoint not found: $endpoint');
+            continue; // Try next endpoint
+          }
+        } catch (e) {
+          print('⚠️ Endpoint $endpoint failed: ${e.toString().split('\n').first}');
+          continue;
+        }
+      }
+      
+      print('❌ All withdrawal endpoints failed');
+      return [];
+    } catch (e) {
+      print('❌ Withdrawal history error: $e');
+      return [];
     }
-    throw Exception("Failed to fetch withdrawals (${res.statusCode})");
   }
 
   /// 🔹 WHEEL WINNINGS
@@ -447,34 +667,13 @@ class ApiService {
     return res.statusCode == 200;
   }
   
-  /// 🔹 GET USER BALANCE (Wallet)
-  static Future<double> getBalance(String token) async {
-    final url = Uri.parse("$baseUrl/balance/");
-
-    final res = await http.get(
-      url,
-      headers: {
-        "Authorization": "Bearer $token",
-        "Content-Type": "application/json",
-      },
-    );
-
-    if (res.statusCode == 200) {
-      final data = jsonDecode(res.body);
-      return double.tryParse(data["balance"].toString()) ?? 0.0;
-    } else {
-      throw Exception("Failed to fetch balance: ${res.body}");
-    }
-  }
-
-  // 🔹 SEND / SAVE CHAT MESSAGE - Use correct endpoint
+  // 🔹 SEND / SAVE CHAT MESSAGE
   static Future<Map<String, dynamic>> sendMessage({required String token, required String message, required String sender}) async {
     try {
       final url = Uri.parse("$baseUrl/chat/save/");
       print('📨 Sending chat message to: $url');
       print('📨 Message: $message');
       
-      // Based on previous error, API expects "content" field
       final res = await http.post(
         url,
         headers: {
@@ -482,7 +681,7 @@ class ApiService {
           "Content-Type": "application/json",
         },
         body: jsonEncode({
-          "content": message, // Field name from error: "content"
+          "content": message,
         }),
       );
 
@@ -540,7 +739,7 @@ class ApiService {
     }
   }
 
-  // 🔹 FETCH CHAT HISTORY - Use correct endpoint /api/chat/
+  // 🔹 FETCH CHAT HISTORY
   static Future<List<Map<String, dynamic>>> fetchChatHistory({required String token}) async {
     try {
       final url = Uri.parse("$baseUrl/chat/");
@@ -653,9 +852,10 @@ class ApiService {
     }).toList();
   }
   
-  static Future<String> _processWithdrawal(String token, double amount) async {
+  /// 🔹 PROCESS WITHDRAWAL
+  static Future<String> processWithdrawal(String token, double amount) async {
     try {
-      final url = Uri.parse('${ApiService.baseUrl}/withdraw/');
+      final url = Uri.parse('$baseUrl/withdraw/');
       final response = await http.post(
         url,
         headers: {
@@ -668,22 +868,24 @@ class ApiService {
       final data = jsonDecode(response.body);
 
       if (response.statusCode == 200) {
-        // Successful withdrawal
         return data['status']?.toString() ?? 'success';
       } else if (response.statusCode == 400) {
-        // Bad request: handle specific errors
-        final errorMsg = data['error']?.toString() ?? '';
-        if (errorMsg.contains('Insufficient')) {
+        final errorMsg = data['error']?.toString() ?? data['message']?.toString() ?? '';
+        if (errorMsg.toLowerCase().contains('insufficient')) {
           return 'insufficient';
         }
-        return data['message']?.toString() ?? 'Withdrawal failed';
+        if (errorMsg.toLowerCase().contains('password')) {
+          return 'withdraw_password_required';
+        }
+        if (errorMsg.toLowerCase().contains('minimum')) {
+          return 'minimum_amount_not_met';
+        }
+        return 'withdrawal_failed: $errorMsg';
       } else {
-        // Other server errors
-        return 'Withdrawal failed: ${response.statusCode}';
+        return 'withdrawal_failed: ${response.statusCode}';
       }
     } catch (e) {
-      // Network or JSON parsing errors
-      return 'Error: $e';
+      return 'error: $e';
     }
   }
     
@@ -701,6 +903,7 @@ class ApiService {
       return [];
     }
   }
+  
   /// 🔹 GET FEATURED PROJECTS
   static Future<List<Map<String, dynamic>>> getFeaturedProjects() async {
     final url = Uri.parse("$baseUrl/main-projects/featured/");
@@ -754,14 +957,14 @@ class ApiService {
         }
         
         print('⚠️ Unexpected response format: $data');
-        return []; // Return empty list instead of null
+        return [];
       } else {
         print('❌ API Error ${res.statusCode}: ${res.body}');
-        return []; // Return empty list instead of throwing exception
+        return [];
       }
     } catch (e) {
       print('❌ Main projects fetch error: $e');
-      return []; // Return empty list on error
+      return [];
     }
   }
 
@@ -799,7 +1002,7 @@ class ApiService {
     String? imagePath,
   }) async {
     try {
-      final url = Uri.parse('$baseUrl/api/recharge/submit-proof/');
+      final url = Uri.parse('$baseUrl/recharge/submit-proof/');
       
       var request = http.MultipartRequest('POST', url);
       request.headers['Authorization'] = 'Token $token';
@@ -836,6 +1039,41 @@ class ApiService {
       }
     } catch (e) {
       throw Exception('Error submitting payment proof: $e');
+    }
+  }
+  
+  /// 🔹 TEST ALL ENDPOINTS (For debugging)
+  static Future<void> testAllEndpoints(String token) async {
+    print('🧪 Testing all API endpoints...');
+    
+    final endpoints = [
+      '$baseUrl/balance/',
+      '$baseUrl/recharge/history/',
+      '$baseUrl/withdraw/history/',
+      '$baseUrl/withdraw-history/',
+      '$baseUrl/profile/',
+      '$baseUrl/vip-packages/',
+    ];
+    
+    for (final endpoint in endpoints) {
+      try {
+        final response = await http.get(
+          Uri.parse(endpoint),
+          headers: {
+            'Authorization': 'Token $token',
+            'Content-Type': 'application/json',
+          },
+        ).timeout(Duration(seconds: 5));
+        
+        print('${response.statusCode} - $endpoint');
+        if (response.statusCode == 200) {
+          print('✅ Working');
+        } else {
+          print('❌ Failed: ${response.body}');
+        }
+      } catch (e) {
+        print('❌ Error: $endpoint - ${e.toString().split('\n').first}');
+      }
     }
   }
 }

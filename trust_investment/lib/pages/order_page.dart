@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'dart:math';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:pushable_button/pushable_button.dart';
 import 'api_service.dart';
 
 class OrderPage extends StatefulWidget {
@@ -16,129 +14,53 @@ class OrderPage extends StatefulWidget {
   State<OrderPage> createState() => _OrderPageState();
 }
 
-class RadialSpinner extends StatefulWidget {
-  final double size;
-  final int lines;
-  final double lineLength;
-  final double lineWidth;
-  final Color color;
-
-  const RadialSpinner({
-    super.key,
-    this.size = 28,
-    this.lines = 12,
-    this.lineLength = 8,
-    this.lineWidth = 3,
-    this.color = Colors.grey,
-  });
-
-  @override
-  State<RadialSpinner> createState() => _RadialSpinnerState();
-}
-
-class _RadialSpinnerState extends State<RadialSpinner>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
+class _OrderPageState extends State<OrderPage> with TickerProviderStateMixin {
+  double _balance = 0.0;
+  bool _isProcessing = false;
+  DateTime? _lastClaimTime;
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+  late Animation<double> _scaleAnimation;
+  
+  int _selectedTab = 0; // 0 = Active, 1 = Completed
+  List<Map<String, dynamic>> _boughtVIPs = [];
+  Map<String, double> _dailyEarnings = {};
 
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 800),
       vsync: this,
-      duration: const Duration(seconds: 1),
-    )..repeat();
+    );
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: Curves.easeInOut,
+      ),
+    );
+    _scaleAnimation = Tween<double>(begin: 0.95, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: Curves.easeOutBack,
+      ),
+    );
+    
+    _animationController.forward();
+    
+    _lastClaimTime = widget.vipData['last_claim_time'] != null
+        ? DateTime.tryParse(widget.vipData['last_claim_time'])
+        : null;
+    
+    _fetchProfile();
+    _loadBoughtVIPs();
+    _calculateDailyEarnings();
   }
 
   @override
   void dispose() {
-    _ctrl.dispose();
+    _animationController.dispose();
     super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: widget.size,
-      height: widget.size,
-      child: AnimatedBuilder(
-        animation: _ctrl,
-        builder: (context, child) {
-          return Transform.rotate(
-            angle: 2 * pi * _ctrl.value,
-            child: CustomPaint(
-              painter: _RadialPainter(
-                lines: widget.lines,
-                lineLength: widget.lineLength,
-                lineWidth: widget.lineWidth,
-                color: widget.color,
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _RadialPainter extends CustomPainter {
-  final int lines;
-  final double lineLength;
-  final double lineWidth;
-  final Color color;
-
-  _RadialPainter({
-    required this.lines,
-    required this.lineLength,
-    required this.lineWidth,
-    required this.color,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = lineWidth
-      ..strokeCap = StrokeCap.round;
-
-    for (int i = 0; i < lines; i++) {
-      final angle = 2 * pi * i / lines;
-      final start = center + Offset(cos(angle), sin(angle)) * (size.width / 4);
-      final end =
-          center + Offset(cos(angle), sin(angle)) * (size.width / 4 + lineLength);
-      canvas.drawLine(start, end, paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
-}
-
-class _OrderPageState extends State<OrderPage> {
-  double _balance = 0.0;
-  bool _isProcessing = false;
-  DateTime? _lastClaimTime;
-
-  int _currentStep = -1;
-  List<String> _steps = [
-    "Checking network",
-    "Checking balance",
-    "Calculating income",
-    "Processing claim"
-  ];
-  List<String> _results = ["pending", "pending", "pending", "pending"];
-
-  int _selectedTab = 0; // 0 = Valid, 1 = Expired
-  List<Map<String, dynamic>> _boughtVIPs = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _fetchProfile();
-    _loadBoughtVIPs();
-    _lastClaimTime = widget.vipData['last_claim_time'] != null
-        ? DateTime.tryParse(widget.vipData['last_claim_time'])
-        : null;
   }
 
   double parseDouble(dynamic v) {
@@ -166,158 +88,55 @@ class _OrderPageState extends State<OrderPage> {
           _balance = parseDouble(profile['balance']);
         });
       }
-    } catch (e) {}
+    } catch (e) {
+      print("Error fetching profile: $e");
+    }
   }
 
   Future<void> _loadBoughtVIPs() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    List<String>? jsonList = prefs.getStringList("bought_vips");
-    if (jsonList != null) {
-      setState(() {
-        _boughtVIPs =
-            jsonList.map((e) => jsonDecode(e) as Map<String, dynamic>).toList();
-      });
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      List<String>? jsonList = prefs.getStringList("bought_vips");
+      if (jsonList != null) {
+        setState(() {
+          _boughtVIPs = jsonList
+              .map((e) => jsonDecode(e) as Map<String, dynamic>)
+              .toList();
+        });
+      }
+    } catch (e) {
+      print("Error loading bought VIPs: $e");
     }
   }
 
   Future<void> _saveBoughtVIPs() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    List<String> jsonList =
-        _boughtVIPs.map((e) => jsonEncode(e)).toList(growable: false);
-    await prefs.setStringList("bought_vips", jsonList);
-  }
-
-  bool _canClaim() {
-    if (_lastClaimTime == null) return true;
-    return DateTime.now().difference(_lastClaimTime!).inHours >= 24;
-  }
-
-  Future<void> _runStep(int index, {required bool successful}) async {
-    if (!mounted) return;
-    setState(() => _currentStep = index);
-    await Future.delayed(const Duration(seconds: 1));
-    if (!mounted) return;
-    setState(() {
-      _results[index] = successful ? "success" : "fail";
-    });
-  }
-
-  Future<void> _claimIncome() async {
-    if (_isProcessing) return;
-    if (!_canClaim()) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("You can claim once every 24 hours")));
-      return;
-    }
-
-    setState(() {
-      _isProcessing = true;
-      _currentStep = 0;
-      _results = ["pending", "pending", "pending", "pending"];
-    });
-
-    await _runStep(0, successful: true);
-    await _runStep(1, successful: true);
-    await _runStep(2, successful: true);
-
     try {
-      final res = await ApiService.claimVipIncome(widget.token);
-      bool ok = res != null && res['success'] == true;
-      await _runStep(3, successful: ok);
-
-      if (ok) {
-        final dailyIncome = parseDouble(
-            widget.vipData['daily_income'] ?? widget.vipData['dailyEarnings']);
-        if (!mounted) return;
-        setState(() {
-          _balance += dailyIncome;
-          _lastClaimTime = DateTime.now();
-          _boughtVIPs.add(widget.vipData); // Add purchased VIP
-        });
-        await _saveBoughtVIPs();
-      }
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      List<String> jsonList =
+          _boughtVIPs.map((e) => jsonEncode(e)).toList(growable: false);
+      await prefs.setStringList("bought_vips", jsonList);
     } catch (e) {
-      await _runStep(3, successful: false);
+      print("Error saving bought VIPs: $e");
     }
-
-    if (!mounted) return;
-    setState(() => _isProcessing = false);
   }
 
-  Widget _buildStep(int index) {
-    String label = _steps[index];
-    String status = _results[index];
-
-    Widget icon;
-    if (_currentStep == index && _isProcessing && status == "pending") {
-      icon = const RadialSpinner();
-    } else if (status == "success") {
-      icon = const Icon(Icons.check_circle, color: Colors.green, size: 28);
-    } else if (status == "fail") {
-      icon = const Icon(Icons.cancel, color: Colors.red, size: 28);
-    } else {
-      icon = const Icon(Icons.circle_outlined, color: Colors.grey, size: 24);
+  void _calculateDailyEarnings() {
+    Map<String, double> earnings = {};
+    for (var vip in _boughtVIPs) {
+      final id = vip['id'].toString();
+      final dailyIncome = parseDouble(vip['daily_income'] ?? vip['dailyEarnings']);
+      earnings[id] = (earnings[id] ?? 0.0) + dailyIncome;
     }
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Column(
-          children: [
-            icon,
-            if (index < _steps.length - 1)
-              Container(
-                width: 2,
-                height: 40,
-                color: Colors.grey.shade300,
-              )
-          ],
-        ),
-        const SizedBox(width: 12),
-        Text(
-          label,
-          style: GoogleFonts.poppins(
-              fontSize: 15,
-              color: status == "success"
-                  ? Colors.green
-                  : status == "fail"
-                      ? Colors.red
-                      : Colors.black87),
-        )
-      ],
-    );
+    setState(() {
+      _dailyEarnings = earnings;
+    });
   }
 
-  Widget _tabButton(String title, int index) {
-    bool selected = _selectedTab == index;
-    return GestureDetector(
-      onTap: () {
-        if (!mounted) return;
-        setState(() {
-          _selectedTab = index;
-        });
-      },
-      child: Column(
-        children: [
-          Text(title,
-              style: GoogleFonts.poppins(
-                  fontSize: 16,
-                  fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                  color: selected ? Colors.purple : Colors.black87)),
-          const SizedBox(height: 4),
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            height: 3,
-            width: selected ? 80 : 0,
-            color: Colors.purple,
-          )
-        ],
-      ),
-    );
+  double get _totalDailyEarnings {
+    return _dailyEarnings.values.fold(0.0, (sum, value) => sum + value);
   }
 
-  List<Map<String, dynamic>> get _validVIPs {
+  List<Map<String, dynamic>> get _activeVIPs {
     return _boughtVIPs.where((vip) {
       final lastClaim = vip['last_claim_time'] != null
           ? DateTime.tryParse(vip['last_claim_time'])
@@ -328,7 +147,7 @@ class _OrderPageState extends State<OrderPage> {
     }).toList();
   }
 
-  List<Map<String, dynamic>> get _expiredVIPs {
+  List<Map<String, dynamic>> get _completedVIPs {
     return _boughtVIPs.where((vip) {
       final lastClaim = vip['last_claim_time'] != null
           ? DateTime.tryParse(vip['last_claim_time'])
@@ -339,185 +158,617 @@ class _OrderPageState extends State<OrderPage> {
     }).toList();
   }
 
+  bool _canClaim() {
+    if (_lastClaimTime == null) return true;
+    return DateTime.now().difference(_lastClaimTime!).inHours >= 24;
+  }
+
+  Future<void> _claimIncome() async {
+    if (_isProcessing || !_canClaim()) return;
+    
+    if (!_canClaim()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "Next claim available in ${24 - DateTime.now().difference(_lastClaimTime!).inHours} hours",
+            style: GoogleFonts.poppins(color: Colors.white),
+          ),
+          backgroundColor: Colors.deepPurple,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isProcessing = true);
+
+    try {
+      // Show processing animation
+      await Future.delayed(const Duration(seconds: 1));
+      
+      final res = await ApiService.claimVipIncome(widget.token);
+      bool ok = res != null && res['success'] == true;
+
+      if (ok && mounted) {
+        final dailyIncome = parseDouble(
+            widget.vipData['daily_income'] ?? widget.vipData['dailyEarnings']);
+        
+        // Animate balance update
+        final targetBalance = _balance + dailyIncome;
+        await _animateBalanceUpdate(targetBalance);
+        
+        setState(() {
+          _lastClaimTime = DateTime.now();
+        });
+
+        // Show success animation
+        _showSuccessAnimation(dailyIncome);
+      } else {
+        _showErrorSnackbar();
+      }
+    } catch (e) {
+      _showErrorSnackbar();
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
+    }
+  }
+
+  Future<void> _animateBalanceUpdate(double targetBalance) async {
+    final duration = const Duration(milliseconds: 500);
+    final steps = 20;
+    final increment = (targetBalance - _balance) / steps;
+    
+    for (int i = 0; i <= steps; i++) {
+      if (!mounted) break;
+      await Future.delayed(duration ~/ steps);
+      setState(() {
+        _balance += increment;
+      });
+    }
+  }
+
+  void _showSuccessAnimation(double amount) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle, color: Colors.white),
+            const SizedBox(width: 8),
+            Text(
+              "Successfully claimed ${amount.toStringAsFixed(2)} Br",
+              style: GoogleFonts.poppins(color: Colors.white),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _showErrorSnackbar() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.white),
+            const SizedBox(width: 8),
+            Text(
+              "Claim failed. Please try again",
+              style: GoogleFonts.poppins(color: Colors.white),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Widget _buildOrderItem(Map<String, dynamic> vip) {
+    final name = vip['title'] ?? "VIP Product";
+    final dailyIncome = parseDouble(vip['daily_income'] ?? vip['dailyEarnings']);
+    final totalIncome = parseDouble(vip['total_earning'] ?? vip['totalIncome']);
+    final validityDays = parseInt(vip['income_days'] ?? vip['validityDays']);
+    final isActive = _selectedTab == 0;
+    
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(
+          color: isActive ? Colors.green.withOpacity(0.2) : Colors.grey.withOpacity(0.2),
+          width: 1,
+        ),
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.all(16),
+        leading: Container(
+          width: 60,
+          height: 60,
+          decoration: BoxDecoration(
+            color: isActive ? Colors.green.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isActive ? Colors.green.withOpacity(0.3) : Colors.grey.withOpacity(0.3),
+            ),
+          ),
+          child: Center(
+            child: Icon(
+              isActive ? Icons.rocket_launch : Icons.check_circle,
+              color: isActive ? Colors.green : Colors.grey,
+              size: 28,
+            ),
+          ),
+        ),
+        title: Text(
+          name,
+          style: GoogleFonts.poppins(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey[800],
+          ),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                _buildInfoChip(
+                  Icons.trending_up,
+                  "${dailyIncome.toStringAsFixed(2)} Br/day",
+                  Colors.blue,
+                ),
+                const SizedBox(width: 8),
+                _buildInfoChip(
+                  Icons.calendar_today,
+                  "$validityDays days",
+                  Colors.orange,
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              "Total: ${totalIncome.toStringAsFixed(2)} Br",
+              style: GoogleFonts.poppins(
+                fontSize: 12,
+                color: Colors.grey[600],
+              ),
+            ),
+          ],
+        ),
+        trailing: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: isActive ? Colors.green.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            isActive ? "ACTIVE" : "COMPLETED",
+            style: GoogleFonts.poppins(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              color: isActive ? Colors.green : Colors.grey,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoChip(IconData icon, String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: GoogleFonts.poppins(
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabButton(String title, int index) {
+    bool selected = _selectedTab == index;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedTab = index;
+        });
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? Colors.deepPurple : Colors.grey[50],
+          borderRadius: BorderRadius.circular(25),
+          border: Border.all(
+            color: selected ? Colors.deepPurple : Colors.grey[200]!,
+          ),
+        ),
+        child: Text(
+          title,
+          style: GoogleFonts.poppins(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: selected ? Colors.white : Colors.grey[700],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final vip = widget.vipData;
     final name = vip['title'] ?? "VIP Product";
     final dailyIncome = parseDouble(vip['daily_income'] ?? vip['dailyEarnings']);
-    final totalIncome = parseDouble(vip['total_earning'] ?? vip['totalIncome']);
-    final validityDays = parseInt(vip['income_days'] ?? vip['validityDays']);
-    final imageUrl = vip['image_url'] ?? "";
-
-    final ordersToShow =
-        _selectedTab == 0 ? _validVIPs : _expiredVIPs;
+    final ordersToShow = _selectedTab == 0 ? _activeVIPs : _completedVIPs;
 
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.purple,
-        centerTitle: true,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(name,
-            style: GoogleFonts.poppins(
-                fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Row(
+      backgroundColor: const Color(0xFFF8F9FA),
+      body: SafeArea(
+        child: FadeTransition(
+          opacity: _fadeAnimation,
+          child: ScaleTransition(
+            scale: _scaleAnimation,
+            child: Column(
               children: [
-                _tabButton("Valid Orders", 0),
-                const SizedBox(width: 20),
-                _tabButton("Expired Orders", 1),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            // VIP card (styled like VipProductsPage)
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(18),
-                boxShadow: [
-                  BoxShadow(
-                      color: Colors.grey.withOpacity(0.3),
-                      blurRadius: 10,
-                      offset: const Offset(0, 5))
-                ],
-              ),
-              child: Column(
-                children: [
-                  if (imageUrl.isNotEmpty)
-                    ClipRRect(
-                      borderRadius:
-                          const BorderRadius.vertical(top: Radius.circular(18)),
-                      child: Image.network(
-                        imageUrl,
-                        height: 150,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                      ),
+                // Header
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.deepPurple.shade700,
+                        Colors.purple.shade600,
+                      ],
                     ),
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    borderRadius: const BorderRadius.only(
+                      bottomLeft: Radius.circular(24),
+                      bottomRight: Radius.circular(24),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         children: [
-                          // VIP badge
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.black87,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
+                          IconButton(
+                            icon: const Icon(Icons.arrow_back, color: Colors.white),
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                          Expanded(
                             child: Text(
-                              name,
+                              "Income & Orders",
                               style: GoogleFonts.poppins(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.bold,
-                                  color: const Color(0xFFFFD700)),
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
                             ),
                           ),
-                          const SizedBox(height: 10),
-                          Text("Daily Income: Br${dailyIncome.toStringAsFixed(2)}",
-                              style: GoogleFonts.poppins(fontSize: 15)),
-                          Text("Total Earnings: Br${totalIncome.toStringAsFixed(2)}",
-                              style: GoogleFonts.poppins(fontSize: 15)),
-                          Text("Earning Days: $validityDays days",
-                              style: GoogleFonts.poppins(fontSize: 15)),
-                        ]),
-                  )
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Balance
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-              decoration: BoxDecoration(
-                color: Colors.purple.shade50,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text("Balance", style: GoogleFonts.poppins(fontSize: 16)),
-                  Text("Br${_balance.toStringAsFixed(2)}",
-                      style: GoogleFonts.poppins(
-                          fontSize: 17,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.purple)),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
-            // Step progress only visible after claim
-            if (_isProcessing)
-              Expanded(
-                child: ListView.builder(
-                  itemCount: _steps.length,
-                  itemBuilder: (c, i) => _buildStep(i),
-                ),
-              ),
-
-            const SizedBox(height: 12),
-
-            // Claim button (3D Pushable style)
-            SizedBox(
-              width: 140,
-              height: 45,
-              child: PushableButton(
-                height: 45,
-                elevation: 6,
-                hslColor: HSLColor.fromAHSL(1.0, 270, 0.6, 0.4),
-                shadow: BoxShadow(
-                  color: Colors.purple.withOpacity(0.5),
-                  blurRadius: 6,
-                  offset: const Offset(0, 3),
-                ),
-                onPressed: _claimIncome,
-                child: Center(
-                  child: Text(
-                    _isProcessing ? "Processing..." : "Claim",
-                    style: GoogleFonts.poppins(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14),
+                          IconButton(
+                            icon: const Icon(Icons.refresh, color: Colors.white),
+                            onPressed: _fetchProfile,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      
+                      // Stats Row
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          _buildStatItem(
+                            "Total Daily",
+                            "${_totalDailyEarnings.toStringAsFixed(2)} Br",
+                            Icons.trending_up,
+                            Colors.yellow,
+                          ),
+                          _buildStatItem(
+                            "Active Orders",
+                            "${_activeVIPs.length}",
+                            Icons.shopping_bag,
+                            Colors.green,
+                          ),
+                          _buildStatItem(
+                            "Balance",
+                            "${_balance.toStringAsFixed(2)} Br",
+                            Icons.account_balance_wallet,
+                            Colors.blue,
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
-              ),
-            ),
 
-            const SizedBox(height: 16),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Current VIP Card
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 20),
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Colors.purple.shade50,
+                                Colors.blue.shade50,
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.purple.withOpacity(0.1),
+                                blurRadius: 15,
+                                offset: const Offset(0, 5),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.deepPurple,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      "CURRENT PLAN",
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                        letterSpacing: 1,
+                                      ),
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  Icon(
+                                    Icons.star,
+                                    color: Colors.amber.shade400,
+                                    size: 24,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                name,
+                                style: GoogleFonts.poppins(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.grey[800],
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  _buildDetailItem(
+                                    "Daily Income",
+                                    "${dailyIncome.toStringAsFixed(2)} Br",
+                                    Icons.attach_money,
+                                  ),
+                                  const SizedBox(width: 20),
+                                  _buildDetailItem(
+                                    "Next Claim",
+                                    _canClaim() ? "Available" : "In ${24 - DateTime.now().difference(_lastClaimTime!).inHours}h",
+                                    Icons.access_time,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 20),
+                              SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton(
+                                  onPressed: _isProcessing ? null : _claimIncome,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: _canClaim() ? Colors.deepPurple : Colors.grey,
+                                    padding: const EdgeInsets.symmetric(vertical: 16),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    elevation: 3,
+                                    shadowColor: Colors.deepPurple.withOpacity(0.3),
+                                  ),
+                                  child: _isProcessing
+                                      ? Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            SizedBox(
+                                              width: 20,
+                                              height: 20,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                valueColor: AlwaysStoppedAnimation<Color>(
+                                                  Colors.white,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Text(
+                                              "Processing...",
+                                              style: GoogleFonts.poppins(
+                                                fontSize: 15,
+                                                fontWeight: FontWeight.w600,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                      : Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              _canClaim() ? Icons.bolt : Icons.lock_clock,
+                                              color: Colors.white,
+                                              size: 20,
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              _canClaim() ? "CLAIM INCOME" : "CLAIM LOCKED",
+                                              style: GoogleFonts.poppins(
+                                                fontSize: 15,
+                                                fontWeight: FontWeight.w600,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
 
-            // Bought VIPs list (valid or expired)
-            Expanded(
-              child: ListView.builder(
-                itemCount: ordersToShow.length,
-                itemBuilder: (c, i) {
-                  final v = ordersToShow[i];
-                  return Card(
-                    margin: const EdgeInsets.symmetric(vertical: 6),
-                    child: ListTile(
-                      title: Text(v['title'] ?? "VIP Product"),
-                      subtitle: Text(
-                          "Daily: Br${v['daily_income'] ?? v['dailyEarnings']}, Total: Br${v['total_earning'] ?? v['totalIncome']}"),
+                        // Tabs
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _buildTabButton("Active Orders", 0),
+                            const SizedBox(width: 12),
+                            _buildTabButton("Completed", 1),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+
+                        // Orders List
+                        if (ordersToShow.isEmpty)
+                          Column(
+                            children: [
+                              Icon(
+                                _selectedTab == 0 
+                                    ? Icons.shopping_bag_outlined 
+                                    : Icons.check_circle_outline,
+                                size: 60,
+                                color: Colors.grey[300],
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                _selectedTab == 0
+                                    ? "No active orders"
+                                    : "No completed orders",
+                                style: GoogleFonts.poppins(
+                                  fontSize: 16,
+                                  color: Colors.grey[500],
+                                ),
+                              ),
+                            ],
+                          )
+                        else
+                          ...ordersToShow.map(_buildOrderItem).toList(),
+                      ],
                     ),
-                  );
-                },
-              ),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildStatItem(String label, String value, IconData icon, Color color) {
+    return Column(
+      children: [
+        Container(
+          width: 50,
+          height: 50,
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.withOpacity(0.3)),
+          ),
+          child: Center(
+            child: Icon(icon, color: color, size: 24),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          value,
+          style: GoogleFonts.poppins(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        Text(
+          label,
+          style: GoogleFonts.poppins(
+            fontSize: 10,
+            color: Colors.white.withOpacity(0.8),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDetailItem(String label, String value, IconData icon) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 14, color: Colors.deepPurple),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: GoogleFonts.poppins(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey[800],
+            ),
+          ),
+        ],
       ),
     );
   }

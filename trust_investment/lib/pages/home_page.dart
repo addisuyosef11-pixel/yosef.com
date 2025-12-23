@@ -2,10 +2,17 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'api_service.dart';
 import 'balance_page.dart';
 import 'gift_redeem_page.dart';
-import 'support_chat_page.dart'; // Add this import
+import 'support_chat_page.dart';
+import 'income_page.dart';
+import 'news_page.dart';
+import 'team_page.dart';
+import 'profile_page.dart';
+import 'lucky_wheel_page.dart';
+import 'recharge_page.dart';
 
 class HomePage extends StatefulWidget {
   final String token;
@@ -24,11 +31,12 @@ class _HomePageState extends State<HomePage> {
   
   bool isLoading = true;
   bool _isMainLoading = false;
-  int _selectedIndex = 0;
+  bool _isApiLoading = false;
+  bool _balanceVisible = true;
   
-  late PageController _pageController;
+  late PageController _vipCtrl;
   final PageController _mainProjectPageController = PageController();
-  int _currentPage = 0;
+  int _vipIndex = 0;
   int _currentMainProjectPage = 0;
   Timer? _autoScrollTimer;
   bool _isUserInteracting = false;
@@ -36,8 +44,8 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _pageController = PageController(viewportFraction: 0.85);
-    _loadData();
+    _vipCtrl = PageController(viewportFraction: 0.88);
+    _loadDataWithDelay();
     _startAutoScroll();
     loadChatHistory();
   }
@@ -45,7 +53,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _autoScrollTimer?.cancel();
-    _pageController.dispose();
+    _vipCtrl.dispose();
     _mainProjectPageController.dispose();
     super.dispose();
   }
@@ -54,14 +62,14 @@ class _HomePageState extends State<HomePage> {
     _autoScrollTimer?.cancel();
     
     _autoScrollTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
-      if (!_isUserInteracting && _vipProducts.isNotEmpty && _pageController.hasClients) {
-        if (_currentPage < _vipProducts.length - 1) {
-          _pageController.nextPage(
+      if (!_isUserInteracting && _vipProducts.isNotEmpty && _vipCtrl.hasClients) {
+        if (_vipIndex < _vipProducts.length - 1) {
+          _vipCtrl.nextPage(
             duration: const Duration(milliseconds: 800),
             curve: Curves.easeInOut,
           );
         } else {
-          _pageController.animateToPage(
+          _vipCtrl.animateToPage(
             0,
             duration: const Duration(milliseconds: 500),
             curve: Curves.easeInOut,
@@ -84,10 +92,21 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  Future<void> _loadDataWithDelay() async {
+    setState(() => isLoading = true);
+    await Future.delayed(const Duration(seconds: 2));
+    await _loadData();
+  }
+
+  Future<void> _loadDataWithApiLoading() async {
+    setState(() => _isApiLoading = true);
+    await Future.delayed(const Duration(seconds: 2));
+    await _loadData();
+    setState(() => _isApiLoading = false);
+  }
+
   Future<void> _loadData() async {
     try {
-      setState(() => isLoading = true);
-      
       print("🔍 Starting data load...");
       
       try {
@@ -166,6 +185,7 @@ class _HomePageState extends State<HomePage> {
   Future<void> _loadMainProjects() async {
     try {
       setState(() => _isMainLoading = true);
+      await Future.delayed(const Duration(seconds: 2));
       
       print("🔍 Fetching main projects...");
       final mainProjectsList = await ApiService.getMainProjects(widget.token);
@@ -188,16 +208,21 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> loadChatHistory() async {
     try {
+      setState(() => _isApiLoading = true);
+      await Future.delayed(const Duration(seconds: 2));
+      
       final chatHistory = await ApiService.fetchChatHistory(token: widget.token);
       print("✅ Chat History loaded: ${chatHistory.length} messages");
       
       setState(() {
         _chatHistory = chatHistory;
+        _isApiLoading = false;
       });
     } catch (e) {
       print("❌ Chat history error: $e");
       setState(() {
         _chatHistory = [];
+        _isApiLoading = false;
       });
     }
   }
@@ -215,6 +240,9 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _openTelegram() async {
+    setState(() => _isApiLoading = true);
+    await Future.delayed(const Duration(seconds: 2));
+    
     const url = 'https://t.me/teslax_official';
     try {
       if (await canLaunchUrl(Uri.parse(url))) {
@@ -224,12 +252,14 @@ class _HomePageState extends State<HomePage> {
       }
     } catch (e) {
       _showToast('Error opening Telegram: $e', isError: true);
+    } finally {
+      setState(() => _isApiLoading = false);
     }
   }
 
   void _refreshData() {
     _showToast("Refreshing data...");
-    _loadData();
+    _loadDataWithApiLoading();
   }
 
   void _navigateToGiftRedeem() {
@@ -250,7 +280,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // NEW: Handle chat navigation
   void _handleChat() {
     Navigator.push(
       context,
@@ -336,6 +365,9 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _handleInvest(int vipId, String name, int price) async {
+    setState(() => _isApiLoading = true);
+    await Future.delayed(const Duration(seconds: 2));
+    
     _showToast("Processing investment...");
     try {
       print("🔍 Investing in VIP ID: $vipId, Name: $name, Price: $price");
@@ -353,6 +385,8 @@ class _HomePageState extends State<HomePage> {
     } catch (e) {
       print("❌ Investment error: $e");
       _showToast("Network error: $e", isError: true);
+    } finally {
+      setState(() => _isApiLoading = false);
     }
   }
 
@@ -519,6 +553,9 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _getMainProject(int projectId, double unitPrice, int units, String projectName) async {
     try {
+      setState(() => _isApiLoading = true);
+      await Future.delayed(const Duration(seconds: 2));
+      
       _showToast("Processing investment...");
       
       print("💰 Investing in Main Project:");
@@ -553,6 +590,8 @@ class _HomePageState extends State<HomePage> {
     } catch (e) {
       print("❌ Investment error: $e");
       _showToast("Network error: ${e.toString()}", isError: true);
+    } finally {
+      setState(() => _isApiLoading = false);
     }
   }
 
@@ -560,292 +599,211 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     if (isLoading) {
       return Scaffold(
-        backgroundColor: const Color(0xFFF5F5F5),
-        body: const Center(
-          child: CircularProgressIndicator(color: Color(0xFF8A2BE2)),
+        backgroundColor: const Color(0xFFF5F5F7),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SpinKitCircle(
+                color: const Color(0xFFFF8C00),
+                size: 50.0,
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Loading TeslaX...',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Color(0xFF8B5CF6),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      body: SafeArea(
-        child: Stack(
-          children: [
-            SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildHeader(),
-                  _buildBalanceCard(),
-                  _buildQuickActions(),
-                  _buildCashChallengeBanner(),
-                  _buildWelfareProducts(),
-                  _buildMainProject(),
-                  const SizedBox(height: 100),
-                ],
+      backgroundColor: const Color(0xFFF5F5F7),
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            child: Column(
+              children: [
+                _heroBanner(),
+                _balanceCard(),
+                _quickActions(),
+                _cashChallenge(),
+                _welfareProducts(),
+                _mainProject(),
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
+          _floatingChat(),
+          
+          // API Loading Overlay
+          if (_isApiLoading)
+            Container(
+              color: Colors.black.withOpacity(0.5),
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SpinKitCircle(
+                      color: const Color(0xFFFF8C00),
+                      size: 50.0,
+                    ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'Processing...',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            _buildFloatingChatButton(), // Add floating chat button
+        ],
+      ),
+    );
+  }
+
+  Widget _heroBanner() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 50, 16, 30),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Color(0xFF8B5CF6),
+            Color(0xFF7C3AED),
+            Color(0xFF6D28D9),
           ],
         ),
       ),
-      bottomNavigationBar: _buildBottomNavigation(),
-    );
-  }
-
-  // NEW: Floating Chat Button with WhatsApp style
-  Widget _buildFloatingChatButton() {
-    return Positioned(
-      right: 20,
-      bottom: 120,
-      child: GestureDetector(
-        onTap: _handleChat,
-        child: Container(
-          width: 60,
-          height: 60,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [const Color(0xFF25D366), const Color(0xFF128C7E)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+      child: Stack(
+        children: [
+          // Car background image
+          Positioned.fill(
+            child: ClipRRect(
+              child: Image.asset(
+                'assets/images/car.jpg',
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(),
+              ),
             ),
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF25D366).withOpacity(0.4),
-                blurRadius: 15,
-                spreadRadius: 2,
-                offset: const Offset(0, 4),
-              ),
-            ],
           ),
-          child: Stack(
-            children: [
-              // Animated ring
-              Positioned.fill(
-                child: Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: Colors.white.withOpacity(0.3),
-                      width: 2,
-                    ),
-                  ),
-                ),
-              ),
-              
-              // Chat icon
-              const Center(
-                child: Icon(
-                  Icons.chat_bubble,
-                  color: Colors.white,
-                  size: 30,
-                ),
-              ),
-              
-              // Support badge with animation
-              Positioned(
-                right: 6,
-                top: 6,
-                child: Container(
-                  width: 18,
-                  height: 18,
-                  decoration: const BoxDecoration(
-                    color: Colors.red,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.red,
-                        blurRadius: 4,
-                        spreadRadius: 1,
-                      ),
-                    ],
-                  ),
-                  child: const Center(
-                    child: Icon(
-                      Icons.headset_mic,
-                      color: Colors.white,
-                      size: 10,
-                    ),
-                  ),
-                ),
-              ),
-              
-              // Unread message indicator
-              if (_chatHistory.isNotEmpty && 
-                  _chatHistory.any((msg) => 
-                    msg['sender'] != 'user' && 
-                    (msg['read'] != true) &&
-                    DateTime.now().difference(DateTime.parse(msg['timestamp'])).inHours < 24))
-                Positioned(
-                  left: 6,
-                  top: 6,
-                  child: Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.red, width: 1.5),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Modified Quick Actions to use new chat handler
-  Widget _buildQuickActions() {
-    final actions = [
-      {
-        'icon': Icons.monetization_on, 
-        'label': 'Free Cash', 
-        'color': const Color(0xFFFFB800), 
-        'bg': const Color(0xFFFFF3CD), 
-        'onTap': _navigateToGiftRedeem
-      },
-      {
-        'icon': Icons.send, 
-        'label': 'Telegram', 
-        'color': const Color(0xFF8A2BE2), 
-        'bg': const Color(0xFFE8D4F8), 
-        'onTap': _openTelegram
-      },
-      {
-        'icon': Icons.headphones, 
-        'label': 'Support', 
-        'color': const Color(0xFF25D366), // WhatsApp green
-        'bg': const Color(0xFFDCF8C6), // WhatsApp light green
-        'badge': _chatHistory.isEmpty ? '0' : '${_chatHistory.length}', 
-        'onTap': _handleChat // Updated to use new chat handler
-      },
-      {
-        'icon': Icons.assignment, 
-        'label': 'Task', 
-        'color': const Color(0xFF8A2BE2), 
-        'bg': const Color(0xFFE8D4F8), 
-        'onTap': () => _showToast('Loading tasks...')
-      },
-    ];
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: actions.map((action) {
-          return GestureDetector(
-            onTap: action['onTap'] as VoidCallback,
-            child: Column(
-              children: [
-                Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Container(
-                      width: 56,
-                      height: 56,
-                      decoration: BoxDecoration(
-                        color: action['bg'] as Color,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.1),
-                            blurRadius: 4,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Icon(
-                        action['icon'] as IconData,
-                        color: action['color'] as Color,
-                        size: 28,
-                      ),
-                    ),
-                    if (action['badge'] != null && action['badge'] != '0')
-                      Positioned(
-                        right: -4,
-                        top: -4,
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: Colors.red,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.red.withOpacity(0.5),
-                                blurRadius: 3,
-                              ),
-                            ],
-                          ),
-                          child: Text(
-                            action['badge'] as String,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
+          
+          // Gradient overlay
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFF8B5CF6).withOpacity(0.8),
+                    const Color(0xFF7C3AED).withOpacity(0.8),
+                    const Color(0xFF6D28D9).withOpacity(0.8),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  action['label'] as String,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF666666),
-                    fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          
+          // Content
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Expanded(
+                child: Text(
+                  'Invest in TeslaX solar cells to earn daily income, achieve sustainable energy development, and alleviate the difficulties faced by Africans in using electricity.',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    height: 1.4,
                   ),
                 ),
-              ],
-            ),
-          );
-        }).toList(),
+              ),
+              const SizedBox(width: 10),
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    width: 90,
+                    height: 55,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.electric_car,
+                      color: Colors.white,
+                      size: 40,
+                    ),
+                  ),
+                  Positioned(
+                    top: -8,
+                    right: -4,
+                    child: Container(
+                      width: 28,
+                      height: 28,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFFBBF24),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Center(
+                        child: Text(
+                          '☀️',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildHeader() {
-    final username = _profileData['username']?.toString() ?? 'User';
-    final userId = _profileData['id']?.toString() ?? '---';
-    
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF8A2BE2), Color(0xFF9B4DCA)],
-        ),
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(24),
-          bottomRight: Radius.circular(24),
-        ),
+  Widget _balanceCard() => Transform.translate(
+    offset: const Offset(0, -16),
+    child: Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // User info with person icon
           Row(
             children: [
               Container(
-                width: 50,
-                height: 50,
+                width: 40,
+                height: 40,
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
+                  color: const Color(0xFF8B5CF6),
+                  shape: BoxShape.circle,
                 ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.network(
-                    'https://images.unsplash.com/photo-1620288627223-53302f4e8c74?w=100',
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => const Icon(Icons.electric_car, color: Colors.white),
-                  ),
+                child: const Icon(
+                  Icons.person,
+                  color: Colors.white,
+                  size: 24,
                 ),
               ),
               const SizedBox(width: 12),
@@ -854,610 +812,367 @@ class _HomePageState extends State<HomePage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      username,
+                      _profileData['username']?.toString() ?? 'User',
                       style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      'ID: $userId',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.8),
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.refresh, color: Colors.white),
-                onPressed: _refreshData,
-                tooltip: 'Refresh',
-              ),
-              IconButton(
-                icon: const Icon(Icons.notifications_outlined, color: Colors.white),
-                onPressed: () => _showToast("Notifications"),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Invest in TeslaX solar cells to earn daily income, achieve sustainable energy development, and alleviate the difficulties faced by Africans in using electricity.',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 14,
-              height: 1.4,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBalanceCard() {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Text(
-                      'Available Balance',
-                      style: TextStyle(
-                        color: Colors.grey,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Icon(Icons.arrow_forward_ios, size: 12, color: Colors.grey[400]),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      _balance.toStringAsFixed(2),
-                      style: const TextStyle(
-                        fontSize: 32,
+                        fontSize: 16,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF333333),
                       ),
                     ),
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 4, left: 4),
-                      child: Text(
-                        'Br',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                          color: Color(0xFF333333),
-                        ),
+                    Text(
+                      'ID: ${_profileData['id']?.toString() ?? '---'}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
                       ),
                     ),
                   ],
                 ),
-              ],
-            ),
-          ),
-          Column(
-            children: [
-              _buildActionButton('Withdraw', const Color(0xFFFF6B35), false, () {
-                _navigateToBalancePage();
-              }),
-              const SizedBox(height: 8),
-              _buildActionButton('Deposit', const Color(0xFFFF6B35), true, () {
-                _navigateToBalancePage();
-              }),
+              ),
             ],
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActionButton(String text, Color color, bool isFilled, VoidCallback onPressed) {
-    return GestureDetector(
-      onTap: onPressed,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-        decoration: BoxDecoration(
-          color: isFilled ? color : Colors.transparent,
-          border: Border.all(color: color, width: 1.5),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(
-          text,
-          style: TextStyle(
-            color: isFilled ? Colors.white : color,
-            fontWeight: FontWeight.w600,
-            fontSize: 14,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCashChallengeBanner() {
-    return GestureDetector(
-      onTap: () => _showToast("Joining Cash Challenge..."),
-      child: Container(
-        margin: const EdgeInsets.all(16),
-        height: 120,
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF8A2BE2), Color(0xFFDA70D6)],
-          ),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Stack(
-          children: [
-            Positioned(
-              left: 16,
-              top: 16,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Cash Challenge',
-                    style: TextStyle(
-                      color: Colors.yellow,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Free win cash, products',
-                    style: TextStyle(color: Colors.white, fontSize: 14),
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF4CAF50),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Text(
-                      'Join now.',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Positioned(
-              right: 8,
-              bottom: 0,
-              child: Image.network(
-                'https://images.unsplash.com/photo-1522542550221-31fd8575f5a5?w=120',
-                height: 100,
-                errorBuilder: (_, __, ___) => const SizedBox(),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildVipProductCard(Map<String, dynamic> product) {
-    final vipLevels = [
-      {
-        'name': 'Basic',
-        'color': [const Color(0xFF4CAF50), const Color(0xFF2E7D32)],
-        'image': 'https://images.unsplash.com/photo-1560958089-b8a1929cea89?w=400',
-      },
-      {
-        'name': 'Premium',
-        'color': [const Color(0xFF2196F3), const Color(0xFF0D47A1)],
-        'image': 'https://images.unsplash.com/photo-1620288627223-53302f4e8c74?w=400',
-      },
-      {
-        'name': 'VIP',
-        'color': [const Color(0xFF9C27B0), const Color(0xFF6A1B9A)],
-        'image': 'https://images.unsplash.com/photo-1593941707882-a5bba14938c7?w=400',
-      },
-    ];
-
-    final index = _vipProducts.indexOf(product);
-    final level = vipLevels[index % vipLevels.length];
-    final gradient = level['color'] as List<Color>;
-    
-    final id = product['id'] ?? 0;
-    final name = product['title'] ?? level['name'] as String;
-    final price = product['price'] ?? 0;
-    final dailyEarnings = product['daily_earnings'] ?? 0;
-    final validityDays = product['validity_days'] ?? 0;
-    final totalIncome = product['total_income'] ?? 0;
-    
-    final priceNum = price is num ? price : double.tryParse(price.toString()) ?? 0;
-    final dailyNum = dailyEarnings is num ? dailyEarnings : double.tryParse(dailyEarnings.toString()) ?? 0;
-    final daysNum = validityDays is num ? validityDays : int.tryParse(validityDays.toString()) ?? 0;
-    final totalNum = totalIncome is num ? totalIncome : double.tryParse(totalIncome.toString()) ?? (dailyNum * daysNum);
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 4),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: gradient[1],
-          width: 2,
-        ),
-      ),
-      child: Column(
-        children: [
-          Container(
-            height: 80,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: gradient,
-              ),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(10),
-                topRight: Radius.circular(10),
-              ),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                children: [
-                  Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 3,
-                        ),
-                      ],
-                    ),
-                    child: Center(
-                      child: Text(
-                        (index + 1).toString(),
-                        style: TextStyle(
-                          color: gradient[1],
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      name.toUpperCase(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.only(
-                bottomLeft: Radius.circular(10),
-                bottomRight: Radius.circular(10),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF333333),
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 6),
-                Row(
+          const SizedBox(height: 16),
+          
+          // Balance section
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildStatItem(daysNum.toString(), 'Days', 12),
-                    _buildStatItem(dailyNum.toStringAsFixed(0), 'Daily', 12),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: gradient[1],
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Column(
+                    GestureDetector(
+                      onTap: _navigateToBalancePage,
+                      child: Row(
                         children: [
                           Text(
-                            totalNum.toStringAsFixed(0),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
+                            'Available Balance',
+                            style: TextStyle(
+                              color: Colors.grey[600],
                               fontSize: 14,
                             ),
                           ),
-                          const Text(
-                            'Total',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 8,
-                            ),
+                          const Icon(
+                            Icons.chevron_right,
+                            size: 18,
+                            color: Colors.grey,
                           ),
                         ],
                       ),
                     ),
+                    const SizedBox(height: 8),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        // Eye icon for show/hide balance
+                        GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _balanceVisible = !_balanceVisible;
+                            });
+                          },
+                          child: Icon(
+                            _balanceVisible ? Icons.visibility : Icons.visibility_off,
+                            color: Colors.grey[600],
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _balanceVisible ? _balance.toStringAsFixed(0) : '*****',
+                          style: const TextStyle(
+                            fontSize: 28, // Reduced font size
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black,
+                          ),
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 4, left: 4),
+                          child: Text(
+                            'Br',
+                            style: TextStyle(
+                              fontSize: 18, // Reduced font size
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFFFF8C00),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
-                const SizedBox(height: 10),
-                Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: gradient,
-                    ),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: ElevatedButton(
-                    onPressed: priceNum > 0 ? () => _showInvestDialog(id, name, priceNum.toInt()) : null,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      shadowColor: Colors.transparent,
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                    ),
-                    child: Text(
-                      priceNum > 0 ? '$priceNum Br  Invest' : 'FREE',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatItem(String value, String label, double fontSize) {
-    return Expanded(
-      child: Column(
-        children: [
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: fontSize,
-              fontWeight: FontWeight.bold,
-              color: const Color(0xFF333333),
-            ),
-          ),
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 9,
-              color: Colors.grey,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildWelfareProducts() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'New',
-                style: TextStyle(
-                  color: Color(0xFFFF6B35),
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  fontStyle: FontStyle.italic,
-                ),
               ),
-              const SizedBox(height: 4),
-              const Text(
-                'Welfare Products',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF333333),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        
-        if (_vipProducts.isEmpty)
-          Container(
-            padding: const EdgeInsets.all(20),
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 10,
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Icon(Icons.inventory_outlined, size: 48, color: Colors.grey[400]),
-                const SizedBox(height: 12),
-                const Text(
-                  'No investment products available',
-                  style: TextStyle(color: Colors.grey),
-                ),
-                const SizedBox(height: 8),
-                ElevatedButton(
-                  onPressed: _refreshData,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF8A2BE2),
-                  ),
-                  child: const Text('Refresh'),
-                ),
-              ],
-            ),
-          )
-        else
-          SizedBox(
-            height: 240,
-            child: GestureDetector(
-              onPanStart: (_) => _handleUserInteraction(),
-              onTapDown: (_) => _handleUserInteraction(),
-              child: PageView.builder(
-                controller: _pageController,
-                scrollDirection: Axis.horizontal,
-                onPageChanged: (index) {
-                  final page = index % _vipProducts.length;
-                  setState(() {
-                    _currentPage = page;
-                  });
-                  _handleUserInteraction();
-                },
-                itemCount: _vipProducts.length,
-                itemBuilder: (context, index) {
-                  final product = _vipProducts[index];
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: _buildVipProductCard(product),
-                  );
-                },
-              ),
-            ),
-          ),
-        
-        const SizedBox(height: 12),
-        
-        if (_vipProducts.isNotEmpty)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(_vipProducts.length, (index) {
-              return GestureDetector(
-                onTap: () {
-                  _handleUserInteraction();
-                  _pageController.animateToPage(
-                    index,
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeInOut,
-                  );
-                },
-                child: Container(
-                  width: _currentPage == index ? 16 : 6,
-                  height: 6,
-                  margin: const EdgeInsets.symmetric(horizontal: 3),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(3),
-                    color: _currentPage == index
-                        ? const Color(0xFF8A2BE2)
-                        : Colors.grey[300]!,
-                  ),
-                ),
-              );
-            }),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildMainProject() {
-    if (_isMainLoading) {
-      return const Padding(
-        padding: EdgeInsets.all(16),
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    if (_mainProjects.isEmpty) {
-      return Container(
-        margin: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Main Projects',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
-                  ),
-                ],
-              ),
-              child: Column(
+              Column(
                 children: [
-                  const Icon(Icons.inventory_outlined, size: 48, color: Colors.grey),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'No main projects available',
-                    style: TextStyle(color: Colors.grey),
+                  OutlinedButton(
+                    onPressed: _navigateToBalancePage,
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(
+                        color: Color(0xFFFF8C00),
+                        width: 2,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                    ),
+                    child: const Text(
+                      'Withdraw',
+                      style: TextStyle(color: Color(0xFFFF8C00)),
+                    ),
                   ),
                   const SizedBox(height: 8),
                   ElevatedButton(
-                    onPressed: _refreshData,
+                    onPressed: _navigateToBalancePage,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF8A2BE2),
+                      backgroundColor: const Color(0xFFFF8C00),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(25),
+                      ),
                     ),
-                    child: const Text('Refresh'),
+                    child: const Text(
+                      'Deposit',
+                      style: TextStyle(color: Colors.white),
+                    ),
                   ),
                 ],
               ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _quickActions() => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        _actionItem(Icons.monetization_on, 'Free Cash', const Color(0xFFFF8C00), onTap: _navigateToGiftRedeem),
+        _actionItem(Icons.send, 'Telegram', const Color(0xFF00BCD4), onTap: _openTelegram),
+        _actionItem(
+          Icons.headphones, 
+          'Message', 
+          const Color(0xFF8B5CF6), 
+          badge: _chatHistory.isEmpty ? null : '${_chatHistory.length}', 
+          onTap: _handleChat,
+        ),
+        _actionItem(Icons.assignment, 'Task', const Color(0xFFE91E8C), onTap: () {
+          setState(() => _isApiLoading = true);
+          Future.delayed(const Duration(seconds: 2)).then((_) {
+            setState(() => _isApiLoading = false);
+            _showToast('Loading tasks...');
+          });
+        }),
+      ],
+    ),
+  );
+
+  Widget _actionItem(IconData icon, String label, Color color, {String? badge, VoidCallback? onTap}) => GestureDetector(
+    onTap: onTap,
+    child: Column(
+      children: [
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.15),
+                    blurRadius: 12,
+                  ),
+                ],
+              ),
+              child: Icon(
+                icon,
+                color: Colors.white,
+                size: 26,
+              ),
+            ),
+            if (badge != null && badge != '0')
+              Positioned(
+                top: -4,
+                right: -4,
+                child: Container(
+                  width: 20,
+                  height: 20,
+                  decoration: const BoxDecoration(
+                    color: Colors.red,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: Text(
+                      badge,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _cashChallenge() => GestureDetector(
+    onTap: () {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => LuckyWheelPage(
+            token: widget.token,
+            currentBalance: _balance,
+          ),
+        ),
+      );
+    },
+    child: Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      height: 140,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [
+            Color(0xFF9333EA),
+            Color(0xFF7C3AED),
+            Color(0xFFEC4899),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 15,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          const Positioned(
+            left: 0,
+            bottom: 0,
+            child: Text(
+              '💵',
+              style: TextStyle(fontSize: 40),
+            ),
+          ),
+          Positioned(
+            right: -20,
+            bottom: -20,
+            child: _spinWheel(),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Cash Challenge',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFFFFD700),
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Free win cash, products',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => LuckyWheelPage(
+                          token: widget.token,
+                          currentBalance: _balance,
+                        ),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF22C55E),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                  ),
+                  child: const Text(
+                    'Join now.',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _spinWheel() => SizedBox(
+    width: 100,
+    height: 100,
+    child: CustomPaint(painter: _WheelPainter()),
+  );
+
+  Widget _welfareProducts() {
+    if (_vipProducts.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        margin: const EdgeInsets.symmetric(horizontal: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            const Icon(Icons.inventory_outlined, size: 48, color: Colors.grey),
+            const SizedBox(height: 12),
+            const Text(
+              'No investment products available',
+              style: TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            ElevatedButton(
+              onPressed: _refreshData,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF8B5CF6),
+              ),
+              child: const Text('Refresh'),
             ),
           ],
         ),
@@ -1468,23 +1183,339 @@ class _HomePageState extends State<HomePage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
           child: Text(
-            'Main Projects',
+            'New',
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: Color(0xFF333333),
+              color: Colors.red,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ),
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          child: Text(
+            'Welfare Products',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ),
         const SizedBox(height: 12),
+        SizedBox(
+          height: 260,
+          child: GestureDetector(
+            onPanStart: (_) => _handleUserInteraction(),
+            onTapDown: (_) => _handleUserInteraction(),
+            child: PageView.builder(
+              controller: _vipCtrl,
+              onPageChanged: (index) {
+                final page = index % _vipProducts.length;
+                setState(() {
+                  _vipIndex = page;
+                });
+                _handleUserInteraction();
+              },
+              itemCount: _vipProducts.length,
+              itemBuilder: (context, index) {
+                final product = _vipProducts[index];
+                return _vipCard(product, index);
+              },
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(_vipProducts.length, (i) {
+            return GestureDetector(
+              onTap: () {
+                _handleUserInteraction();
+                _vipCtrl.animateToPage(
+                  i,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeInOut,
+                );
+              },
+              child: Container(
+                width: 8,
+                height: 8,
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: i == _vipIndex
+                      ? const Color(0xFF8B5CF6)
+                      : Colors.grey[300]!,
+                ),
+              ),
+            );
+          }),
+        ),
+      ],
+    );
+  }
+
+  Widget _vipCard(Map<String, dynamic> v, int index) {
+    final id = v['id'] ?? 0;
+    final name = v['title'] ?? 'TeslaX VIP';
+    final price = v['price'] ?? 0;
+    final dailyEarnings = v['dailyEarnings'] ?? v['daily_earnings'] ?? 0;
+    final validityDays = v['validityDays'] ?? v['validity_days'] ?? 0;
+    final totalIncome = v['totalIncome'] ?? v['total_income'] ?? 0;
+    
+    final priceNum = price is num ? price : double.tryParse(price.toString()) ?? 0;
+    final dailyNum = dailyEarnings is num ? dailyEarnings : double.tryParse(dailyEarnings.toString()) ?? 0;
+    final daysNum = validityDays is num ? validityDays : int.tryParse(validityDays.toString()) ?? 0;
+    final totalNum = totalIncome is num ? totalIncome : double.tryParse(totalIncome.toString()) ?? (dailyNum * daysNum);
+    
+    return Container(
+      margin: const EdgeInsets.only(right: 12),
+      decoration: BoxDecoration(
+        border: Border.all(color: const Color(0xFF22C55E), width: 4),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Color(0xFF1a1a2e),
+                  Color(0xFF16213e),
+                ],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
+              borderRadius: BorderRadius.vertical(
+                top: Radius.circular(12),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          'T',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 20,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'TESLAX',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        letterSpacing: 2,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  name.toString(),
+                  style: const TextStyle(color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              color: Colors.white,
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _stat(daysNum.toString(), 'Cycle(Days)', false),
+                      _stat(dailyNum.toStringAsFixed(0), 'Daily income(Br)', false),
+                      _stat(totalNum.toStringAsFixed(0), 'Total income(Br)', true),
+                    ],
+                  ),
+                  const Spacer(),
+                  GestureDetector(
+                    onTap: priceNum > 0 ? () => _showInvestDialog(id, name.toString(), priceNum.toInt()) : null,
+                    child: Container(
+                      width: double.infinity,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [
+                            Color(0xFF00BCD4),
+                            Color(0xFF3B82F6),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: Center(
+                        child: Text(
+                          priceNum > 0 ? '$priceNum Br  Invest' : 'FREE',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _stat(String val, String label, bool hl) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: hl
+        ? BoxDecoration(
+            color: const Color(0xFF22C55E).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+          )
+        : null,
+    child: Column(
+      children: [
+        Text(
+          val,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: hl ? const Color(0xFF22C55E) : Colors.black,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            color: hl ? const Color(0xFF22C55E) : Colors.grey,
+          ),
+        ),
+      ],
+    )
+  );
+
+  Widget _mainProject() {
+    if (_isMainLoading) {
+      return Container(
+        margin: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 12,
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SpinKitCircle(
+              color: const Color(0xFF8B5CF6),
+              size: 40.0,
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Loading Main Projects...',
+              style: TextStyle(
+                color: Colors.grey,
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_mainProjects.isEmpty) {
+      return Container(
+        margin: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 12,
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            const Text(
+              'Main Project',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Icon(Icons.inventory_outlined, size: 48, color: Colors.grey),
+            const SizedBox(height: 12),
+            const Text(
+              'No projects available',
+              style: TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            ElevatedButton(
+              onPressed: _refreshData,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF8B5CF6),
+              ),
+              child: const Text('Refresh'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Text(
+            'Main Project',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
         
+        // Display all main projects in a list
         Column(
-          children: _mainProjects.map((project) {
+          children: _mainProjects.asMap().entries.map((entry) {
+            final index = entry.key;
+            final project = entry.value;
             return Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: _buildMainProjectCardVertical(project),
+              child: _buildMainProjectCard(project, index),
             );
           }).toList(),
         ),
@@ -1492,10 +1523,9 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildMainProjectCardVertical(Map<String, dynamic> project) {
+  Widget _buildMainProjectCard(Map<String, dynamic> project, int index) {
     final int id = (project['id'] is int) ? project['id'] : int.tryParse(project['id']?.toString() ?? '0') ?? 0;
     final String title = project['title']?.toString() ?? 'Main Project';
-    final String description = project['description']?.toString() ?? project['short_description']?.toString() ?? '';
     
     final double price = (project['price'] is num) ? (project['price'] as num).toDouble() : 
                         double.tryParse(project['price']?.toString() ?? '0') ?? 0.0;
@@ -1506,392 +1536,287 @@ class _HomePageState extends State<HomePage> {
     final int cycleDays = (project['cycle_days'] is int) ? project['cycle_days'] : 
                          int.tryParse(project['cycle_days']?.toString() ?? '30') ?? 30;
     
-    double totalIncome = (project['total_income'] is num) ? (project['total_income'] as num).toDouble() : 
-                        double.tryParse(project['total_income']?.toString() ?? '0') ?? 0.0;
-    
-    if (totalIncome == 0) {
-      totalIncome = dailyIncome * cycleDays;
-    }
-    
     final int availableUnits = (project['available_units'] is int) ? project['available_units'] : 
                              int.tryParse(project['available_units']?.toString() ?? '0') ?? 0;
     
-    final int totalUnits = (project['total_units'] is int) ? project['total_units'] : 
-                          int.tryParse(project['total_units']?.toString() ?? '0') ?? 0;
-    
-    final bool isAvailable = availableUnits > 0 && 
-                            (project['is_active'] ?? true) && 
-                            (project['status']?.toString() != 'sold_out');
+    final double totalIncome = dailyIncome * cycleDays;
 
-    final List<Color> gradientColors = [
-      const Color(0xFFFF6B35),
-      const Color(0xFFFF8E53),
+    // Use project image if available, otherwise use car images
+    final String? projectImage = project['image']?.toString();
+    
+    // List of car images as fallback
+    final List<String> carImages = [
+      'images/car_1.jpg',
+      'images/car_2.jpg',
+      'images/car_3.jpg',
+      'images/car_4.jpg',
+      'images/car_5.jpg',
+      'images/car_6.jpg',
+      'images/car_7.jpg',
+      'images/car_8.jpg',
     ];
+    
+    final String imagePath = projectImage != null && projectImage.isNotEmpty
+        ? projectImage
+        : carImages[index % carImages.length];
 
     return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: const Color(0xFFFF6B35),
-          width: 2,
-        ),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
           ),
         ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            height: 70,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: gradientColors,
-              ),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(12),
-                topRight: Radius.circular(12),
-            ),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 4,
-                        ),
-                      ],
-                    ),
-                    child: Center(
-                      child: Icon(
-                        Icons.solar_power,
-                        color: gradientColors[1],
-                        size: 22,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          'MAIN PROJECT',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.9),
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.8,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          title.toUpperCase(),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.white),
-                    ),
-                    child: Text(
-                      '$availableUnits/$totalUnits',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+          // Title
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
             ),
           ),
+          const SizedBox(height: 12),
           
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.only(
-                bottomLeft: Radius.circular(12),
-                bottomRight: Radius.circular(12),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (description.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Text(
-                      description,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFF666666),
-                        height: 1.4,
-                      ),
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[50],
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _buildVerticalStatItem('$cycleDays', 'Days', Icons.calendar_today),
-                      _buildVerticalStatItem('${dailyIncome.toStringAsFixed(0)}', 'Daily', Icons.trending_up),
-                      _buildVerticalStatItem('${totalIncome.toStringAsFixed(0)}', 'Total', Icons.attach_money),
-                    ],
+          Row(
+            children: [
+              // Image in rounded rectangle
+              Container(
+                width: 70,
+                height: 70,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  color: Colors.grey[200],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.asset(
+                    imagePath,
+                    width: 70,
+                    height: 70,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Center(
+                          child: Icon(
+                            Icons.ev_station,
+                            size: 40,
+                            color: Color(0xFF22C55E),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
-                
-                const SizedBox(height: 16),
-                
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[50],
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+              ),
+              const SizedBox(width: 12),
+              
+              // Project details
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    RichText(
+                      text: TextSpan(
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey,
+                        ),
                         children: [
-                          const Text(
-                            'Unit Price',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
-                          ),
-                          ),
-                          Text(
-                            '${price.toStringAsFixed(0)} Br',
+                          const TextSpan(text: 'Cycle(Days): '),
+                          TextSpan(
+                            text: '$cycleDays',
                             style: const TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFFFF6B35),
+                              color: Color(0xFFFF8C00),
                             ),
                           ),
                         ],
                       ),
-                      
-                      Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: isAvailable 
-                              ? gradientColors 
-                              : [Colors.grey, Colors.grey],
-                          ),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: ElevatedButton(
-                          onPressed: isAvailable ? () => _showMainProjectInvestDialog(id, title, price, availableUnits) : null,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.transparent,
-                            shadowColor: Colors.transparent,
-                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                          ),
-                          child: Text(
-                            isAvailable ? 'INVEST NOW' : 'SOLD OUT',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildVerticalStatItem(String value, String label, IconData icon) {
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 16, color: const Color(0xFFFF6B35)),
-            const SizedBox(width: 4),
-            Text(
-              value,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF333333),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Colors.grey,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildBottomNavigation() {
-    final items = [
-      {
-        'icon': Icons.home, 
-        'label': 'Home', 
-        'onTap': () => setState(() => _selectedIndex = 0)
-      },
-      {
-        'icon': Icons.trending_up, 
-        'label': 'Income', 
-        'onTap': () {
-          setState(() => _selectedIndex = 1);
-          _showToast("Loading income details...");
-        }
-      },
-      {
-        'icon': Icons.article, 
-        'label': 'News', 
-        'onTap': () {
-          setState(() => _selectedIndex = 2);
-          _showToast("Loading news...");
-        }
-      },
-      {
-        'icon': Icons.chat, 
-        'label': 'Chat', 
-        'onTap': () {
-          setState(() => _selectedIndex = 3);
-          _handleChat(); // Updated to use new chat handler
-        }
-      },
-      {
-        'icon': Icons.people, 
-        'label': 'Team', 
-        'onTap': () {
-          setState(() => _selectedIndex = 4);
-          _showToast("Loading team data...");
-        }
-      },
-      {
-        'icon': Icons.person, 
-        'label': 'Me', 
-        'onTap': () {
-          setState(() => _selectedIndex = 5);
-          _showToast("Opening profile...");
-        }
-      },
-    ];
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: List.generate(items.length, (index) {
-              final item = items[index];
-              final isSelected = _selectedIndex == index;
-              return GestureDetector(
-                onTap: item['onTap'] as VoidCallback,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      item['icon'] as IconData,
-                      color: isSelected ? const Color(0xFF8A2BE2) : Colors.grey,
-                      size: 24,
                     ),
-                    const SizedBox(height: 4),
                     Text(
-                      item['label'] as String,
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: isSelected ? const Color(0xFF8A2BE2) : Colors.grey,
-                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      'Available: $availableUnits/1',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey,
                       ),
                     ),
                   ],
                 ),
-              );
-            }),
+              ),
+            ],
           ),
-        ),
+          const SizedBox(height: 12),
+          
+          // Stats container
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildStatColumn(dailyIncome.toStringAsFixed(0), 'Daily Income(Br)', false),
+                _buildStatColumn(totalIncome.toStringAsFixed(0), 'Total Income(Br)', false),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          
+          // Price and Invest Button
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Price section
+              RichText(
+                text: TextSpan(
+                  style: const TextStyle(color: Colors.black),
+                  children: [
+                    const TextSpan(text: 'Price(Br) '),
+                    TextSpan(
+                      text: price.toStringAsFixed(0),
+                      style: const TextStyle(
+                        color: Color(0xFFFF8C00),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              // Invest button
+              ElevatedButton(
+                onPressed: availableUnits > 0
+                    ? () => _showMainProjectInvestDialog(id, title, price, availableUnits)
+                    : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF8C00),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                  elevation: 2,
+                ),
+                child: Text(
+                  availableUnits > 0 ? 'INVEST' : 'SOLD OUT',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
+
+  // Helper method for stats columns
+  Widget _buildStatColumn(String value, String label, bool highlight) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: highlight
+        ? BoxDecoration(
+            color: const Color(0xFF22C55E).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+          )
+        : null,
+    child: Column(
+      children: [
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: highlight ? const Color(0xFF22C55E) : Colors.black,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            color: highlight ? const Color(0xFF22C55E) : Colors.grey,
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _floatingChat() => Positioned(
+    bottom: 20,
+    right: 16,
+    child: FloatingActionButton(
+      backgroundColor: const Color(0xFF22C55E),
+      onPressed: _handleChat,
+      child: const Icon(
+        Icons.chat_bubble,
+        color: Colors.white,
+      ),
+    ),
+  );
 }
 
-class _TeslaLogoPainter extends CustomPainter {
+// Simplified Wheel Painter
+class _WheelPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = const Color(0xFFDC143C)
+    final c = Offset(size.width / 2, size.height / 2);
+    final r = size.width / 2;
+    final colors = [
+      Colors.red,
+      Colors.green,
+      Colors.blue,
+      Colors.yellow,
+      Colors.purple,
+      Colors.orange,
+    ];
+    
+    // Draw colored segments
+    for (int i = 0; i < 6; i++) {
+      final paint = Paint()
+        ..color = colors[i]
+        ..style = PaintingStyle.fill;
+      
+      canvas.drawArc(
+        Rect.fromCircle(center: c, radius: r),
+        i * (2 * 3.14159 / 6),
+        2 * 3.14159 / 6,
+        true,
+        paint,
+      );
+    }
+    
+    // Draw center circle
+    final centerPaint = Paint()
+      ..color = Colors.white
       ..style = PaintingStyle.fill;
-
-    final path = Path();
-    path.moveTo(size.width * 0.5, size.height * 0.15);
-    path.lineTo(size.width * 0.3, size.height * 0.85);
-    path.lineTo(size.width * 0.45, size.height * 0.85);
-    path.lineTo(size.width * 0.5, size.height * 0.5);
-    path.lineTo(size.width * 0.55, size.height * 0.85);
-    path.lineTo(size.width * 0.7, size.height * 0.85);
-    path.close();
-    canvas.drawPath(path, paint);
+    
+    canvas.drawCircle(c, r * 0.4, centerPaint);
   }
 
   @override

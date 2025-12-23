@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'api_service.dart';
 import 'signup_page.dart';
 import 'home_page.dart';
+import '../main.dart'; // Add this import to access MainNavigation
 import 'dart:convert';
 
 class LoginPage extends StatefulWidget {
@@ -47,9 +48,12 @@ class _LoginPageState extends State<LoginPage> {
         final token = result['token'];
         _showSnackBar("Login successful", isError: false);
 
+        // FIXED: Navigate to MainNavigation instead of HomePage
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => HomePage(token: token)),
+          MaterialPageRoute(
+            builder: (_) => MainNavigation(token: token),
+          ),
         );
       } else {
         _showSnackBar("Login failed. Check username or password.", isError: true);

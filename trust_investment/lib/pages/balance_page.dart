@@ -35,17 +35,25 @@ class _BalancePageState extends State<BalancePage> {
   Future<void> _fetchData() async {
     setState(() => isLoading = true);
     try {
-      // Get profile data which includes balances - FIXED VERSION
-      final profileData = await _getBalanceFromApi();
+      // FIXED: Use ApiService.getBalance() like HomePage
+      final balanceResult = await ApiService.getBalance(widget.token);
       
       // Get history data
       final withdrawData = await ApiService.getWithdrawals(widget.token);
       final depositData = await ApiService.getRechargeHistory(widget.token);
 
       setState(() {
-        balance = profileData['total'] ?? 0;
-        availableBalance = profileData['available'] ?? 0;
-        frozenBalance = profileData['frozen'] ?? 0;
+        // Get balance from ApiService.getBalance() result
+        if (balanceResult['success'] == true) {
+          balance = (balanceResult['total'] as double?) ?? 0;
+          availableBalance = (balanceResult['available'] as double?) ?? 0;
+          frozenBalance = (balanceResult['frozen'] as double?) ?? 0;
+        } else {
+          // Fallback values
+          balance = 0;
+          availableBalance = 0;
+          frozenBalance = 0;
+        }
         withdrawals = withdrawData;
         deposits = depositData;
         isLoading = false;
@@ -56,93 +64,7 @@ class _BalancePageState extends State<BalancePage> {
     }
   }
 
-  // FIXED: Direct API call for balance
-  Future<Map<String, double>> _getBalanceFromApi() async {
-    try {
-      // Try the profile endpoint first
-      final profileUrl = Uri.parse('${ApiService.baseUrl}/profile/');
-      final balanceUrl = Uri.parse('${ApiService.baseUrl}/balance/');
-      
-      final profileResponse = await http.get(
-        profileUrl,
-        headers: {
-          'Authorization': 'Token ${widget.token}',
-          'Content-Type': 'application/json',
-        },
-      );
-
-      print('Profile API Response Status: ${profileResponse.statusCode}');
-      print('Profile API Response Body: ${profileResponse.body}');
-
-      if (profileResponse.statusCode == 200) {
-        final profileData = jsonDecode(profileResponse.body);
-        
-        // Check if balance is in profile response
-        if (profileData.containsKey('balance') || 
-            profileData.containsKey('available_balance') ||
-            profileData.containsKey('total_balance')) {
-          
-          return {
-            'total': _extractDouble(profileData, ['balance', 'total_balance', 'total']),
-            'available': _extractDouble(profileData, ['available_balance', 'available', 'avail_balance']),
-            'frozen': _extractDouble(profileData, ['frozen_balance', 'frozen', 'locked_balance']),
-          };
-        }
-      }
-
-      // If profile doesn't have balance, try balance endpoint
-      final balanceResponse = await http.get(
-        balanceUrl,
-        headers: {
-          'Authorization': 'Token ${widget.token}',
-          'Content-Type': 'application/json',
-        },
-      );
-
-      print('Balance API Response Status: ${balanceResponse.statusCode}');
-      print('Balance API Response Body: ${balanceResponse.body}');
-
-      if (balanceResponse.statusCode == 200) {
-        final balanceData = jsonDecode(balanceResponse.body);
-        
-        return {
-          'total': _extractDouble(balanceData, ['balance', 'total_balance', 'total']),
-          'available': _extractDouble(balanceData, ['available_balance', 'available', 'avail_balance']),
-          'frozen': _extractDouble(balanceData, ['frozen_balance', 'frozen', 'locked_balance']),
-        };
-      }
-
-      // If both fail, return zeros
-      return {'total': 0, 'available': 0, 'frozen': 0};
-
-    } catch (e) {
-      print('Error fetching balance: $e');
-      return {'total': 0, 'available': 0, 'frozen': 0};
-    }
-  }
-
-  double _extractDouble(Map<String, dynamic> data, List<String> possibleKeys) {
-    for (var key in possibleKeys) {
-      if (data.containsKey(key) && data[key] != null) {
-        try {
-          final value = data[key];
-          if (value is double) return value;
-          if (value is int) return value.toDouble();
-          if (value is String) {
-            // Remove any currency symbols and parse
-            final cleaned = value.replaceAll(RegExp(r'[^0-9.]'), '');
-            return double.tryParse(cleaned) ?? 0.0;
-          }
-          if (value is num) return value.toDouble();
-        } catch (e) {
-          print('Error extracting $key: $e');
-        }
-      }
-    }
-    return 0.0;
-  }
-
-  // Fetch payment methods - FIXED to handle different response structures
+  // Fetch payment methods
   Future<void> _fetchPaymentMethods() async {
     try {
       final url = Uri.parse('${ApiService.baseUrl}/payment-methods/');
@@ -190,7 +112,7 @@ class _BalancePageState extends State<BalancePage> {
     }
   }
 
-  // Process withdrawal - FIXED with better error handling
+  // Process withdrawal
   Future<String> _processWithdrawal(String token, double amount) async {
     try {
       final url = Uri.parse('${ApiService.baseUrl}/withdraw/');
@@ -248,7 +170,16 @@ class _BalancePageState extends State<BalancePage> {
     );
   }
 
-  // ... REST OF THE CODE REMAINS EXACTLY THE SAME ...
+  void _navigateToRechargePage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => RechargePage(token: widget.token),
+      ),
+    ).then((_) {
+      _fetchData();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -278,6 +209,11 @@ class _BalancePageState extends State<BalancePage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildBalanceCard(),
+                    
+                    // DEPOSIT & WITHDRAW BUTTONS - SIDE BY SIDE
+                    const SizedBox(height: 24),
+                    _buildActionButtons(),
+                    
                     const SizedBox(height: 24),
                     _buildBalanceDetails(),
                     const SizedBox(height: 24),
@@ -353,18 +289,6 @@ class _BalancePageState extends State<BalancePage> {
                       ),
                     ],
                   ),
-                  ElevatedButton(
-                    onPressed: () => _showWithdrawDialog(),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.purple,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(25),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-                    ),
-                    child: const Text('Withdraw', style: TextStyle(fontWeight: FontWeight.bold)),
-                  ),
                 ],
               ),
               const SizedBox(height: 20),
@@ -381,22 +305,6 @@ class _BalancePageState extends State<BalancePage> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              const SizedBox(height: 16),
-              Align(
-                alignment: Alignment.centerRight,
-                child: ElevatedButton(
-                  onPressed: () => _navigateToRechargePage(),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: Colors.orange,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(25),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 10),
-                  ),
-                  child: const Text('Deposit', style: TextStyle(fontWeight: FontWeight.bold)),
-                ),
-              ),
             ],
           ),
         ],
@@ -404,17 +312,71 @@ class _BalancePageState extends State<BalancePage> {
     );
   }
 
-  // NEW: Navigate to Recharge Page
-  void _navigateToRechargePage() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => RechargePage(token: widget.token),
+  // NEW: Deposit & Withdraw buttons side by side
+  Widget _buildActionButtons() {
+    return Row(
+      children: [
+        Expanded(
+          child: _buildDepositButton(),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _buildWithdrawButton(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDepositButton() {
+    return ElevatedButton(
+      onPressed: _navigateToRechargePage,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.orange,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(25),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        elevation: 4,
       ),
-    ).then((_) {
-      // Refresh data when returning from recharge page
-      _fetchData();
-    });
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.arrow_downward, color: Colors.orange[700]),
+          const SizedBox(width: 8),
+          const Text(
+            'Deposit',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWithdrawButton() {
+    return ElevatedButton(
+      onPressed: () => _showWithdrawDialog(),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF8A2BE2),
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(25),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        elevation: 4,
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.arrow_upward, color: Colors.white),
+          const SizedBox(width: 8),
+          const Text(
+            'Withdraw',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildBalanceDetails() {
