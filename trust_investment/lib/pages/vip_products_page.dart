@@ -23,37 +23,37 @@ class _VipProductsPageState extends State<VipProductsPage> {
     {
       "name": "VIP Starter Boost",
       "color": [Color(0xFF8E2DE2), Color(0xFF4A00E0)],
-      "image": "assets/images/vip_1.jpg"
+      "image": "assets/images/car_1.jpg"
     },
     {
       "name": "VIP Power Rise",
       "color": [Color(0xFF6A11CB), Color(0xFF2575FC)],
-      "image": "assets/images/vip_2.jpg"
+      "image": "assets/images/car_2.jpg"
     },
     {
       "name": "VIP Momentum X",
       "color": [Color(0xFFFF512F), Color(0xFFDD2476)],
-      "image": "assets/images/vip_3.jpg"
+      "image": "assets/images/car_3.jpg"
     },
     {
       "name": "VIP Velocity Pro",
       "color": [Color(0xFF00B09B), Color(0xFF96C93D)],
-      "image": "assets/images/vip_4.jpg"
+      "image": "assets/images/car_4.jpg"
     },
     {
       "name": "VIP Turbo Edge",
       "color": [Color(0xFF43C6AC), Color(0xFF191654)],
-      "image": "assets/images/vip_5.jpg"
+      "image": "assets/images/car_5.jpg"
     },
     {
       "name": "VIP Galaxy Prime",
       "color": [Color(0xFFDA22FF), Color(0xFF9733EE)],
-      "image": "assets/images/vip_6.jpg"
+      "image": "assets/images/car_6.jpg"
     },
     {
       "name": "VIP Infinity Plus",
       "color": [Color(0xFFFFA17F), Color(0xFF00223E)],
-      "image": "assets/images/vip_7.jpg"
+      "image": "assets/images/car_7.jpg"
     },
     {
       "name": "VIP Titan Max",
@@ -63,7 +63,7 @@ class _VipProductsPageState extends State<VipProductsPage> {
     {
       "name": "VIP Nova Legend",
       "color": [Color(0xFFFF5F6D), Color(0xFFFFC371)],
-      "image": "assets/images/vip_9.jpg"
+      "image": "assets/images/car_8.jpg"
     },
   ];
 
@@ -102,10 +102,11 @@ class _VipProductsPageState extends State<VipProductsPage> {
         ),
       );
 
+      // FIXED: Removed vipData parameter
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => OrderPage(token: widget.token, vipData: vip),
+          builder: (_) => OrderPage(token: widget.token),
         ),
       );
     } else if (result == "insufficient") {
@@ -241,6 +242,21 @@ class _VipProductsPageState extends State<VipProductsPage> {
                                       height: 95,
                                       width: 95,
                                       fit: BoxFit.cover,
+                                      errorBuilder: (context, error, stackTrace) {
+                                        return Container(
+                                          height: 95,
+                                          width: 95,
+                                          decoration: BoxDecoration(
+                                            color: Colors.grey[300],
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                          child: Icon(
+                                            Icons.star,
+                                            size: 40,
+                                            color: Colors.white,
+                                          ),
+                                        );
+                                      },
                                     ),
                                   ),
                                   const SizedBox(width: 14),
@@ -314,7 +330,7 @@ class _VipProductsPageState extends State<VipProductsPage> {
                   fontSize: 13,
                   fontWeight: FontWeight.bold)),
         ],
-      ),
+      )
     );
   }
 

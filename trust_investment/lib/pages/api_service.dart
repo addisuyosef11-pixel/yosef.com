@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class ApiService {
-  static const String baseUrl = "http://10.164.11.61:8000/api";
+  static const String baseUrl = "http://192.168.137.1:8000/api";
 
   // 🔹 HELPER: Get auth headers with "Token " prefix
   static Map<String, String> _authHeader(String token) {
@@ -593,17 +593,38 @@ class ApiService {
     throw Exception("Failed to fetch settings: ${res.body}");
   }
 
-  /// 🔹 UPDATE ACCOUNT NUMBER
-  static Future<bool> accountnumberUpdate({required String token, required String newAccountNumber}) async {
-    final url = Uri.parse("$baseUrl/account_number/update/");
-    final res = await http.post(
-      url,
-      headers: {"Authorization": "Token $token", "Content-Type": "application/json"},
-      body: jsonEncode({"account_number": newAccountNumber}),
+   // In api_service.dart
+static Future<bool> accountnumberUpdate({
+  required String token,
+  required String merchantName,
+  required String bankType,
+  required String newAccountNumber,
+}) async {
+  try {
+    final response = await http.post(
+      Uri.parse('$baseUrl/account_number/update/'), // Update your endpoint URL
+      headers: {
+        'Authorization': 'Token $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'merchant_name': merchantName,
+        'bank_type': bankType,
+        'account_number': newAccountNumber,
+      }),
     );
-    return res.statusCode == 200;
-  }
 
+    if (response.statusCode == 200) {
+      return true;
+    } else {
+      print('Failed to update account: ${response.statusCode}');
+      return false;
+    }
+  } catch (e) {
+    print('Error updating account: $e');
+    return false;
+  }
+}
   /// 🔹 SET WITHDRAW PASSWORD
   static Future<bool> setWithdrawPassword({required String token, required String withdrawPassword}) async {
     final url = Uri.parse("$baseUrl/set_withdraw_password/");
@@ -1076,4 +1097,220 @@ class ApiService {
       }
     }
   }
+
+ // 🔹 GET USER INVESTMENTS - FIXED VERSION (with status handling)
+static Future<List<Map<String, dynamic>>> getUserInvestments(String token) async {
+  try {
+    print('📊 Fetching user investments...');
+    
+    final response = await http.get(
+      Uri.parse('$baseUrl/user/investments/'),
+      headers: {
+        'Authorization': 'Token $token',
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+    ).timeout(Duration(seconds: 10));
+
+    print('📊 Investments Response Status: ${response.statusCode}');
+    
+    if (response.statusCode == 200) {
+      print('📊 Investments Response Body: ${response.body}');
+      
+      final dynamic data = json.decode(response.body);
+      List<Map<String, dynamic>> investments = [];
+      
+      // Handle the response format you showed
+      if (data is Map) {
+        // Process VIPs
+        if (data['vips'] is List) {
+          for (var vip in data['vips']) {
+            final vipMap = Map<String, dynamic>.from(vip);
+            investments.add({
+              'id': vipMap['id'] ?? 0,
+              'title': vipMap['title'] ?? 'VIP Package',
+              'price': _parseAmount(vipMap['price']),
+              'dailyEarnings': _parseAmount(vipMap['daily_income']),
+              'validityDays': vipMap['income_days'] ?? 30,
+              'totalIncome': _parseAmount(vipMap['total_income'] ?? 
+                          ((vipMap['daily_income'] ?? 0) * (vipMap['income_days'] ?? 30))),
+              'purchase_date': vipMap['purchase_date']?.toString() ?? '',
+              'last_claim_time': vipMap['last_claim_time']?.toString() ?? '',
+              'status': _normalizeStatus(vipMap['status']?.toString()), // Fix status
+              'type': 'vip',
+              'image': vipMap['image_url'] ?? 'assets/images/vip_1.jpg',
+            });
+          }
+        }
+        
+        // Process Main Projects if your API returns them
+        if (data['main_projects'] is List) {
+          for (var project in data['main_projects']) {
+            final projectMap = Map<String, dynamic>.from(project);
+            investments.add({
+              'id': projectMap['id'] ?? 0,
+              'title': projectMap['title'] ?? 'Main Project',
+              'price': _parseAmount(projectMap['price']),
+              'daily_income': _parseAmount(projectMap['daily_income']),
+              'cycle_days': projectMap['cycle_days'] ?? projectMap['income_days'] ?? 30,
+              'total_income': _parseAmount(projectMap['total_income'] ?? 
+                          ((projectMap['daily_income'] ?? 0) * (projectMap['cycle_days'] ?? 30))),
+              'purchase_date': projectMap['purchase_date']?.toString() ?? '',
+              'units': projectMap['units'] ?? 1,
+              'available_units': projectMap['available_units'] ?? 0,
+              'last_claim_time': projectMap['last_claim_time']?.toString() ?? '',
+              'status': _normalizeStatus(projectMap['status']?.toString()), // Fix status
+              'type': 'main_project',
+              'image': projectMap['image_url'] ?? 'images/car_1.jpg',
+            });
+          }
+        }
+        
+        // If investments are directly in data
+        if (investments.isEmpty && data['investments'] is List) {
+          investments = List<Map<String, dynamic>>.from(data['investments']);
+        }
+      }
+      
+      print('✅ Found ${investments.length} investments');
+      return investments;
+    } 
+    else if (response.statusCode == 401) {
+      print('❌ Authentication failed');
+      throw Exception('Authentication failed. Please login again.');
+    }
+    else {
+      print('❌ API Error ${response.statusCode}: ${response.body}');
+      return [];
+    }
+  } catch (e) {
+    print('❌ Error getting user investments: $e');
+    return [];
+  }
+}
+
+// Helper method to normalize status
+static String _normalizeStatus(String? status) {
+  if (status == null) return 'active';
+  
+  status = status.toLowerCase();
+  
+  if (status == 'complete' || status == 'completed' || status == 'finished' || status == 'ended') {
+    return 'completed';
+  }
+  
+  if (status == 'active' || status == 'running' || status == 'ongoing') {
+    return 'active';
+  }
+  
+  return 'active'; // default
+}
+
+// 🔹 CLAIM INVESTMENT INCOME - FIXED VERSION
+static Future<Map<String, dynamic>> claimInvestmentIncome(String token, int investmentId, String type) async {
+  try {
+    print('💰 Claiming income for $type ID: $investmentId');
+    
+    Map<String, dynamic> body;
+    String endpoint;
+    
+    // Determine endpoint and body based on investment type
+    if (type == 'vip') {
+      endpoint = '$baseUrl/vip/claim-income/'; // or '/vip/claim/'
+      body = {
+        'vip_id': investmentId,
+      };
+    } else if (type == 'main_project') {
+      endpoint = '$baseUrl/main-projects/claim-income/'; // or '/main-projects/claim/'
+      body = {
+        'project_id': investmentId,
+      };
+    } else {
+      throw Exception('Invalid investment type: $type');
+    }
+    
+    final response = await http.post(
+      Uri.parse(endpoint),
+      headers: {
+        'Authorization': 'Token $token',  // FIXED: Changed from 'Bearer' to 'Token'
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: json.encode(body),
+    );
+
+    print('💰 Claim Response Status: ${response.statusCode}');
+    print('💰 Claim Response Body: ${response.body}');
+    
+    final dynamic data = json.decode(response.body);
+    
+    if (response.statusCode == 200) {
+      return {
+        'success': true,
+        'message': data['message'] ?? 'Income claimed successfully',
+        'amount': data['amount']?.toDouble() ?? 0.0,
+        'data': data,
+      };
+    } 
+    else if (response.statusCode == 400) {
+      final errorMsg = data['error']?.toString() ?? data['message']?.toString() ?? '';
+      return {
+        'success': false,
+        'error': errorMsg,
+        'code': 'claim_failed',
+      };
+    }
+    else if (response.statusCode == 401) {
+      return {
+        'success': false,
+        'error': 'Authentication failed. Please login again.',
+        'code': 'auth_failed',
+      };
+    }
+    else {
+      return {
+        'success': false,
+        'error': 'Failed to claim income: ${response.statusCode}',
+        'code': 'server_error',
+      };
+    }
+  } catch (e) {
+    print('❌ Error claiming income: $e');
+    return {
+      'success': false,
+      'error': 'Network error: $e',
+      'code': 'network_error',
+    };
+  }
+}
+
+// 🔹 GET ALL INVESTMENTS (BOTH PURCHASED AND AVAILABLE)
+static Future<Map<String, dynamic>> getAllInvestments(String token) async {
+  try {
+    print('📈 Fetching all investments...');
+    
+    // Fetch available and purchased investments in parallel
+    final availableFuture = getMainProjects(token);
+    final purchasedFuture = getUserInvestments(token);
+    
+    final results = await Future.wait([availableFuture, purchasedFuture], eagerError: true);
+    
+    return {
+      'success': true,
+      'available_projects': results[0],
+      'purchased_investments': results[1],
+    };
+  } catch (e) {
+    print('❌ Error getting all investments: $e');
+    return {
+      'success': false,
+      'error': e.toString(),
+      'available_projects': [],
+      'purchased_investments': [],
+    };
+  }
+}
+
+
+
 }

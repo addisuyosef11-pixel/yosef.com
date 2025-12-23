@@ -69,9 +69,14 @@ class Profile(models.Model):
     )
     points = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     account_number = models.CharField(max_length=50, blank=True, null=True)
+    merchant_name = models.CharField(max_length=100, blank=True, default='')
+    bank_type = models.CharField(max_length=50, blank=True, default='')
     balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     available_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     invite_code = models.CharField(max_length=6, unique=True, blank=True, null=True)
+    total_invested = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    total_withdrawn = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    total_earned = models.DecimalField(max_digits=15, decimal_places=2, default=0)
 
     def save(self, *args, **kwargs):
         if not self.invite_code:
@@ -474,28 +479,24 @@ class VIP(models.Model):
         return self.title
 
 
+from django.db import models
+from django.utils import timezone
+from datetime import timedelta
+
 class UserVIP(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     vip = models.ForeignKey(VIP, on_delete=models.CASCADE)
     invested = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    purchase_date = models.DateTimeField(default=timezone.now)  # ADD THIS LINE
     last_claim_time = models.DateTimeField(null=True, blank=True)
 
     def can_claim(self):
         if self.last_claim_time is None:
             return True
         return timezone.now() >= self.last_claim_time + timedelta(hours=24)
-
-
-class Investment(models.Model):
-    customer = models.ForeignKey(Profile, on_delete=models.CASCADE)
-    invested_on = models.DateTimeField(default=timezone.now)
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    daily_profit_rate = models.FloatField(default=0.05)
-
-    def calculate_profit(self):
-        days = (timezone.now().date() - self.invested_on.date()).days
-        return self.amount * (self.daily_profit_rate * days)
-
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.vip.title}"
 
 # =======================
 # ORDERS & PAYMENTS
@@ -673,3 +674,213 @@ class MainProject(models.Model):
             'total_units': self.total_units,
             'is_available': self.is_available,
         }
+    
+
+
+class UserMainProject(models.Model):
+    """Tracks user's main project purchases"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    main_project = models.ForeignKey(MainProject, on_delete=models.CASCADE)
+    units = models.IntegerField(default=1, validators=[MinValueValidator(1)])
+    invested_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    purchase_date = models.DateTimeField(auto_now_add=True)
+    last_claim_time = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=[
+        ('active', 'Active'),
+        ('completed', 'Completed'),
+        ('cancelled', 'Cancelled'),
+    ], default='active')
+    
+    class Meta:
+        unique_together = ('user', 'main_project')
+        ordering = ['-purchase_date']
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.main_project.title} ({self.units} units)"
+    
+    def can_claim(self):
+        """Check if user can claim income (24-hour cooldown)"""
+        if self.status != 'active':
+            return False
+            
+        if self.last_claim_time is None:
+            return True
+            
+        return timezone.now() >= self.last_claim_time + timedelta(hours=24)
+    
+    def remaining_days(self):
+        """Calculate remaining days in the investment cycle"""
+        if self.main_project.cycle_days <= 0:
+            return float('inf')  # Infinite cycle
+            
+        days_since_purchase = (timezone.now() - self.purchase_date).days
+        remaining = self.main_project.cycle_days - days_since_purchase
+        return max(0, remaining)
+    
+    def is_active(self):
+        """Check if investment should still be active"""
+        if self.status == 'cancelled':
+            return False
+            
+        # If manually marked as completed, respect that
+        if self.status == 'completed':
+            return False
+            
+        # Check cycle days
+        if self.main_project.cycle_days <= 0:
+            return True  # Infinite cycle
+            
+        days_since_purchase = (timezone.now() - self.purchase_date).days
+        return days_since_purchase < self.main_project.cycle_days
+    
+    def claim_income(self):
+        """Claim daily income from the investment"""
+        if not self.can_claim():
+            return None
+            
+        # Calculate daily income
+        daily_income = self.main_project.daily_income * self.units
+        
+        # Update user balance
+        profile = Profile.objects.get(user=self.user)
+        profile.balance += daily_income
+        profile.available_balance += daily_income
+        profile.save()
+        
+        # Update last claim time
+        self.last_claim_time = timezone.now()
+        
+        # Check and update status based on cycle completion
+        if self.main_project.cycle_days > 0:
+            days_since_purchase = (timezone.now() - self.purchase_date).days
+            if days_since_purchase >= self.main_project.cycle_days:
+                self.status = 'completed'
+        
+        self.save()
+        
+        return daily_income
+    
+    def save(self, *args, **kwargs):
+        """Override save to auto-update status based on cycle days"""
+        # Auto-update status when saving
+        if self.main_project.cycle_days > 0:
+            days_since_purchase = (timezone.now() - self.purchase_date).days
+            if days_since_purchase >= self.main_project.cycle_days:
+                self.status = 'completed'
+            elif self.status == 'completed' and days_since_purchase < self.main_project.cycle_days:
+                # If someone manually set to completed but cycle isn't over, revert to active
+                self.status = 'active'
+        
+        super().save(*args, **kwargs)
+
+
+
+       
+
+from django.core.validators import FileExtensionValidator
+import os
+import uuid
+
+def video_upload_path(instance, filename):
+    # Upload to: videos/{username}/{filename}
+    ext = filename.split('.')[-1]
+    filename = f"{uuid.uuid4()}.{ext}"
+    return os.path.join('videos', instance.uploaded_by.username, filename)
+
+def thumbnail_upload_path(instance, filename):
+    # Upload to: thumbnails/{username}/{filename}
+    ext = filename.split('.')[-1]
+    filename = f"{uuid.uuid4()}.{ext}"
+    return os.path.join('thumbnails', instance.uploaded_by.username, filename)
+
+class Video(models.Model):
+    CATEGORY_CHOICES = [
+        ('educational', 'Educational'),
+        ('training', 'Training'),
+        ('news', 'News'),
+        ('tutorial', 'Tutorial'),
+        ('promotional', 'Promotional'),
+        ('other', 'Other'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('pending', 'Pending Review'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+    ]
+    
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    video_file = models.FileField(
+        upload_to=video_upload_path,
+        validators=[FileExtensionValidator(allowed_extensions=['mp4', 'avi', 'mov', 'mkv', 'webm'])],
+        help_text='Upload video files (MP4, AVI, MOV, MKV, WEBM)'
+    )
+    thumbnail = models.ImageField(
+        upload_to=thumbnail_upload_path,
+        null=True,
+        blank=True,
+        help_text='Optional thumbnail image'
+    )
+    category = models.CharField(max_length=50, choices=CATEGORY_CHOICES, default='educational')
+    duration = models.IntegerField(default=0, help_text='Duration in seconds')
+    file_size = models.BigIntegerField(default=0, help_text='File size in bytes')
+    views = models.PositiveIntegerField(default=0)
+    likes = models.PositiveIntegerField(default=0)
+    dislikes = models.PositiveIntegerField(default=0)
+    is_featured = models.BooleanField(default=False)
+    is_published = models.BooleanField(default=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='approved')
+    uploaded_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='uploaded_videos')
+    approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_videos')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['-created_at']),
+            models.Index(fields=['category']),
+            models.Index(fields=['is_featured']),
+            models.Index(fields=['status']),
+        ]
+    
+    def __str__(self):
+        return self.title
+    
+    def save(self, *args, **kwargs):
+        if self.is_published and not self.published_at:
+            self.published_at = timezone.now()
+        if not self.is_published:
+            self.published_at = None
+        super().save(*args, **kwargs)
+    
+    def get_video_url(self):
+        """Get the absolute URL for the video file"""
+        return self.video_file.url if self.video_file else None
+    
+    def get_thumbnail_url(self):
+        """Get the absolute URL for the thumbnail"""
+        if self.thumbnail:
+            return self.thumbnail.url
+        # Return default thumbnail if none uploaded
+        return '/static/images/default-video-thumbnail.jpg'
+    
+    def format_duration(self):
+        """Format duration in HH:MM:SS"""
+        hours = self.duration // 3600
+        minutes = (self.duration % 3600) // 60
+        seconds = self.duration % 60
+        if hours > 0:
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        return f"{minutes:02d}:{seconds:02d}"
+    
+    def format_file_size(self):
+        """Format file size in human-readable format"""
+        size = self.file_size
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size < 1024.0:
+                return f"{size:.2f} {unit}"
+            size /= 1024.0
+        return f"{size:.2f} TB"

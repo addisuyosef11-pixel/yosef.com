@@ -26,8 +26,8 @@ urlpatterns = [
     path('account_number/update/', api_views.update_account_number, name='api_update_account_number'),
     path('set_withdraw_password/', api_views.set_withdraw_password_api, name='api_set_withdraw_password'),
     path('commissions/', api_views.commissions_api, name='api_commissions'),
-    path('start/', api_views.aviator_start_api, name='api_aviator_start'),
-    path('history/', api_views.aviator_history_api, name='api_aviator_history'),
+    
+   
     path('vip/claim/', api_views.claim_vip_income_api, name='api_claim_vip_income'),
     path('invite/use/', api_views.use_invite_code, name='use_invite_code'),
     path('invite/my-code/', api_views.get_my_invite_code, name='get_my_invite_code'),
@@ -35,9 +35,12 @@ urlpatterns = [
     path('gift/info/', api_views.get_gift_code_info, name='get_gift_code_info'),
     path('main-projects/', api_views.get_main_projects, name='main-projects'),
     path('main-projects/featured/', api_views.get_featured_projects, name='featured-projects'),
-    path('main-projects/available/', api_views.get_available_projects, name='available-projects'),
+    path('main-projects/available/', api_views.get_main_projects, name='available-projects'),
     path('recharge/history/',api_views.recharge_history, name='recharge_history'),
     path("payment-methods/", api_views.get_payment_methods, name="payment-methods"),
+    path('user/investments/', api_views.get_user_investments, name='user-investments'),
+    path('api/vips/<int:vip_id>/claim/', api_views.claim_vip_income_api, name='claim-vip-income'),
+    path('api/main-projects/<int:project_id>/claim/', api_views.claim_main_project_income, name='claim-project-income'),
 
     
 

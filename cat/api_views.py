@@ -578,14 +578,31 @@ def commissions_api(request):
 @permission_classes([IsAuthenticated])
 def update_account_number(request):
     try:
-        new_account = request.data.get('newAccountNumber')
-        if not new_account:
-            return JsonResponse({'error': 'Missing account number'}, status=400)
-
+        # Get data from request
+        account_number = request.data.get('account_number')
+        merchant_name = request.data.get('merchant_name', '')
+        bank_type = request.data.get('bank_type', '')
+        
+        # Validate required field
+        if not account_number:
+            return JsonResponse({'error': 'Account number is required'}, status=400)
+        
+        # Update profile
         profile = Profile.objects.get(user=request.user)
-        profile.account_number = new_account
+        profile.account_number = account_number
+        profile.merchant_name = merchant_name
+        profile.bank_type = bank_type
         profile.save()
-        return JsonResponse({'message': 'Account number updated successfully', 'account_number': profile.account_number})
+        
+        return JsonResponse({
+            'message': 'Account details updated successfully',
+            'account_number': profile.account_number,
+            'merchant_name': profile.merchant_name,
+            'bank_type': profile.bank_type
+        })
+        
+    except Profile.DoesNotExist:
+        return JsonResponse({'error': 'Profile not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
     
@@ -673,33 +690,6 @@ def claim_vip_income_api(request):
 
 
 
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.response import Response
-import random, time
-
-# 🧠 Example: Start new Aviator round (non-realtime)
-@api_view(['GET'])
-@permission_classes([AllowAny])  # or IsAuthenticated if you need auth
-def aviator_start_api(request):
-    crash_point = round(random.uniform(1.1, 10.0), 2)
-    return Response({
-        "round_id": int(time.time()),
-        "crash_point": crash_point,
-        "message": "Aviator round initialized"
-    })
-
-
-# 🧠 Example: Get previous rounds (mock)
-@api_view(['GET'])
-@permission_classes([AllowAny])
-def aviator_history_api(request):
-    data = [
-        {"round_id": 101, "crash": 2.35},
-        {"round_id": 102, "crash": 7.42},
-        {"round_id": 103, "crash": 1.87},
-    ]
-    return Response({"history": data})
 
 
 
@@ -1266,3 +1256,344 @@ def get_payment_methods(request):
 
     return JsonResponse({"methods": data}, status=200)
 
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_user_investments(request):
+    """Get user's purchased VIPs and Main Projects"""
+    user = request.user
+    
+    # Get user's VIPs
+    user_vips = UserVIP.objects.filter(user=user)
+    vip_data = []
+    for user_vip in user_vips:
+        vip = user_vip.vip
+        vip_data.append({
+            'id': vip.id,
+            'title': vip.title,
+            'price': float(vip.price),
+            'daily_income': float(vip.daily_income),
+            'income_days': vip.income_days,
+            'total_income': float(vip.daily_income * vip.income_days),
+            'purchase_date': user_vip.purchase_date.strftime('%Y-%m-%d') if hasattr(user_vip, 'purchase_date') else timezone.now().strftime('%Y-%m-%d'),
+            'last_claim_time': user_vip.last_claim_time.strftime('%Y-%m-%d %H:%M:%S') if user_vip.last_claim_time else None,
+            'status': 'active' if user_vip.can_claim() else 'completed',
+            'type': 'vip',
+            'image_url': vip.image_url,
+        })
+    
+    # Get user's Main Projects (if you have UserMainProject model)
+    main_projects_data = []
+    try:
+        from .models import UserMainProject
+        user_projects = UserMainProject.objects.filter(user=user)
+        for user_project in user_projects:
+            project = user_project.main_project
+            main_projects_data.append({
+                'id': project.id,
+                'title': project.title,
+                'price': float(project.price),
+                'daily_income': float(project.daily_income),
+                'cycle_days': project.cycle_days,
+                'total_income': float(project.total_income),
+                'purchase_date': user_project.purchase_date.strftime('%Y-%m-%d'),
+                'units': user_project.units,
+                'available_units': project.available_units,
+                'last_claim_time': user_project.last_claim_time.strftime('%Y-%m-%d %H:%M:%S') if user_project.last_claim_time else None,
+                'status': user_project.status,
+                'type': 'main_project',
+                'image_url': project.image_url,
+            })
+    except ImportError:
+        # If UserMainProject doesn't exist yet, return empty list
+        pass
+    
+    return Response({
+        'vips': vip_data,
+        'main_projects': main_projects_data,
+        'total_count': len(vip_data) + len(main_projects_data),
+    })
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def claim_vip_income(request, vip_id):
+    """Claim income from a VIP investment"""
+    try:
+        user_vip = UserVIP.objects.get(user=request.user, vip_id=vip_id)
+        
+        if not user_vip.can_claim():
+            return Response({
+                'success': False,
+                'message': 'You can only claim once every 24 hours',
+                'next_claim': user_vip.last_claim_time + timedelta(hours=24) if user_vip.last_claim_time else None,
+            }, status=400)
+        
+        # Calculate daily income
+        daily_income = user_vip.vip.daily_income
+        
+        # Update user balance
+        profile = Profile.objects.get(user=request.user)
+        profile.balance += daily_income
+        profile.available_balance += daily_income
+        profile.save()
+        
+        # Update last claim time
+        user_vip.last_claim_time = timezone.now()
+        user_vip.save()
+        
+        # Record transaction
+        Transaction.objects.create(
+            customer=request.user,
+            type='profit',
+            amount=daily_income,
+            status='success',
+        )
+        
+        return Response({
+            'success': True,
+            'message': f'Successfully claimed {daily_income} Br',
+            'amount': float(daily_income),
+            'balance': float(profile.balance),
+        })
+        
+    except UserVIP.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': 'VIP investment not found',
+        }, status=404)
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Error claiming income: {str(e)}',
+        }, status=500)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def claim_main_project_income(request, project_id):
+    """Claim income from a Main Project investment"""
+    try:
+        # This requires the UserMainProject model
+        from .models import UserMainProject
+        user_project = UserMainProject.objects.get(user=request.user, main_project_id=project_id)
+        
+        if user_project.status != 'active':
+            return Response({
+                'success': False,
+                'message': 'This investment is not active',
+            }, status=400)
+        
+        if not user_project.can_claim():
+            return Response({
+                'success': False,
+                'message': 'You can only claim once every 24 hours',
+                'next_claim': user_project.last_claim_time + timedelta(hours=24) if user_project.last_claim_time else None,
+            }, status=400)
+        
+        # Calculate daily income (daily income * units)
+        daily_income = user_project.main_project.daily_income * user_project.units
+        
+        # Update user balance
+        profile = Profile.objects.get(user=request.user)
+        profile.balance += daily_income
+        profile.available_balance += daily_income
+        profile.save()
+        
+        # Update last claim time
+        user_project.last_claim_time = timezone.now()
+        user_project.save()
+        
+        # Check if investment cycle is completed
+        days_since_purchase = (timezone.now() - user_project.purchase_date).days
+        if days_since_purchase >= user_project.main_project.cycle_days:
+            user_project.status = 'completed'
+            user_project.save()
+        
+        # Record transaction
+        Transaction.objects.create(
+            customer=request.user,
+            type='profit',
+            amount=daily_income,
+            status='success',
+        )
+        
+        return Response({
+            'success': True,
+            'message': f'Successfully claimed {daily_income} Br',
+            'amount': float(daily_income),
+            'balance': float(profile.balance),
+        })
+        
+    except ImportError:
+        return Response({
+            'success': False,
+            'message': 'Main project investment tracking not implemented',
+        }, status=501)
+    except UserMainProject.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': 'Main project investment not found',
+        }, status=404)
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Error claiming income: {str(e)}',
+        }, status=500)
+    
+
+
+
+
+
+
+
+
+
+# views.py or api/views.py
+from rest_framework import viewsets, status, generics, filters
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
+from rest_framework.parsers import MultiPartParser, FormParser
+from django_filters.rest_framework import DjangoFilterBackend
+from django.db.models import Q
+from .models import Video
+from .serializers import VideoSerializer, VideoUploadSerializer
+from django.utils import timezone
+import os
+
+class VideoViewSet(viewsets.ModelViewSet):
+    queryset = Video.objects.filter(is_published=True, status='approved')
+    serializer_class = VideoSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['category', 'is_featured', 'uploaded_by']
+    search_fields = ['title', 'description']
+    ordering_fields = ['created_at', 'views', 'likes']
+    ordering = ['-created_at']
+    
+    def get_permissions(self):
+        """
+        Instantiates and returns the list of permissions that this view requires.
+        """
+        if self.action in ['create', 'update', 'partial_update', 'destroy', 'upload']:
+            permission_classes = [IsAdminUser]
+        elif self.action in ['list', 'retrieve']:
+            permission_classes = [AllowAny]
+        else:
+            permission_classes = [IsAuthenticated]
+        return [permission() for permission in permission_classes]
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # For admin users, show all videos (including unpublished)
+        if self.request.user.is_staff:
+            queryset = Video.objects.all()
+        
+        # Filter by featured
+        featured = self.request.query_params.get('featured')
+        if featured == 'true':
+            queryset = queryset.filter(is_featured=True)
+        
+        # Filter by category
+        category = self.request.query_params.get('category')
+        if category:
+            queryset = queryset.filter(category=category)
+        
+        # Filter by search query
+        search = self.request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(
+                Q(title__icontains=search) |
+                Q(description__icontains=search)
+            )
+        
+        return queryset
+    
+    @action(detail=True, methods=['post'])
+    def increment_views(self, request, pk=None):
+        video = self.get_object()
+        video.views += 1
+        video.save()
+        return Response({'message': 'View count incremented', 'views': video.views})
+    
+    @action(detail=True, methods=['post'])
+    def like(self, request, pk=None):
+        video = self.get_object()
+        video.likes += 1
+        video.save()
+        return Response({'message': 'Video liked', 'likes': video.likes})
+    
+    @action(detail=True, methods=['post'])
+    def dislike(self, request, pk=None):
+        video = self.get_object()
+        video.dislikes += 1
+        video.save()
+        return Response({'message': 'Video disliked', 'dislikes': video.dislikes})
+    
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    def upload(self, request):
+        serializer = VideoUploadSerializer(data=request.data, context={'request': request})
+        
+        if serializer.is_valid():
+            # Calculate duration and file size (you might need to implement this)
+            video_file = serializer.validated_data['video_file']
+            
+            # Create video instance
+            video = serializer.save(
+                uploaded_by=request.user,
+                duration=0,  # You'll need to calculate this
+                file_size=video_file.size,
+                status='approved' if request.user.is_staff else 'pending'
+            )
+            
+            # Return the created video
+            response_serializer = VideoSerializer(video, context={'request': request})
+            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=False, methods=['get'])
+    def categories(self, request):
+        categories = Video.objects.values_list('category', flat=True).distinct()
+        return Response({'categories': list(categories)})
+
+class AdminVideoViewSet(viewsets.ModelViewSet):
+    """
+    Admin-only video management
+    """
+    queryset = Video.objects.all()
+    serializer_class = VideoSerializer
+    permission_classes = [IsAdminUser]
+    
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        video = self.get_object()
+        video.status = 'approved'
+        video.approved_by = request.user
+        video.is_published = True
+        video.save()
+        return Response({'message': 'Video approved'})
+    
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        video = self.get_object()
+        video.status = 'rejected'
+        video.is_published = False
+        video.save()
+        return Response({'message': 'Video rejected'})
+    
+    @action(detail=True, methods=['post'])
+    def feature(self, request, pk=None):
+        video = self.get_object()
+        video.is_featured = True
+        video.save()
+        return Response({'message': 'Video featured'})
+    
+    @action(detail=True, methods=['post'])
+    def unfeature(self, request, pk=None):
+        video = self.get_object()
+        video.is_featured = False
+        video.save()
+        return Response({'message': 'Video unfeatured'})

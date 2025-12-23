@@ -16,6 +16,14 @@ class _SetWithdrawPasswordPageState extends State<SetWithdrawPasswordPage> {
   bool _isLoading = false;
   String? _message;
 
+  // Colors from your SettingsPage
+  static const Color primaryColor = Color(0xFF9C27B0);
+  static const Color secondaryColor = Color(0xFF7B1FA2);
+  static const Color backgroundColor = Color(0xFFF5F5F5);
+  static const Color cardColor = Colors.white;
+  static const Color textColor = Colors.black87;
+  static const Color subtitleColor = Colors.black54;
+
   Future<void> _setPassword() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -59,10 +67,17 @@ class _SetWithdrawPasswordPageState extends State<SetWithdrawPasswordPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF001F3F),
+      backgroundColor: backgroundColor, // Changed to match SettingsPage
       appBar: AppBar(
         title: const Text("Set Withdraw Password"),
-        backgroundColor: const Color(0xFF004AAD),
+        backgroundColor: primaryColor, // Changed to purple from SettingsPage
+        foregroundColor: Colors.white,
+        elevation: 4,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            bottom: Radius.circular(15),
+          ),
+        ),
       ),
       body: Center(
         child: SingleChildScrollView(
@@ -71,7 +86,7 @@ class _SetWithdrawPasswordPageState extends State<SetWithdrawPasswordPage> {
             constraints: const BoxConstraints(maxWidth: 400),
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: cardColor,
               borderRadius: BorderRadius.circular(18),
               boxShadow: const [
                 BoxShadow(
@@ -109,11 +124,13 @@ class _SetWithdrawPasswordPageState extends State<SetWithdrawPasswordPage> {
                     child: ElevatedButton(
                       onPressed: _isLoading ? null : _setPassword,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF004AAD),
+                        backgroundColor: primaryColor, // Changed to purple
+                        foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
+                        elevation: 4,
                       ),
                       child: _isLoading
                           ? const CircularProgressIndicator(color: Colors.white)
@@ -126,13 +143,37 @@ class _SetWithdrawPasswordPageState extends State<SetWithdrawPasswordPage> {
                   ),
                   if (_message != null) ...[
                     const SizedBox(height: 20),
-                    Text(
-                      _message!,
-                      style: TextStyle(
-                        color: _message!.contains("✅") ? Colors.green : Colors.redAccent,
-                        fontWeight: FontWeight.bold,
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: _message!.contains("✅") 
+                            ? Colors.green.withOpacity(0.1) 
+                            : Colors.red.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: _message!.contains("✅") 
+                              ? Colors.green.withOpacity(0.3) 
+                              : Colors.red.withOpacity(0.3),
+                        ),
                       ),
-                      textAlign: TextAlign.center,
+                      child: Row(
+                        children: [
+                          Icon(
+                            _message!.contains("✅") ? Icons.check_circle : Icons.error,
+                            color: _message!.contains("✅") ? Colors.green : Colors.red,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              _message!,
+                              style: TextStyle(
+                                color: _message!.contains("✅") ? Colors.green : Colors.red,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ]
                 ],
@@ -152,10 +193,13 @@ class _SetWithdrawPasswordPageState extends State<SetWithdrawPasswordPage> {
       fillColor: Colors.grey[100],
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide.none,
       ),
-      focusedBorder: const OutlineInputBorder(
-        borderSide: BorderSide(color: Color(0xFF004AAD), width: 2),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: primaryColor, width: 2), // Changed to purple
       ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
     );
   }
 }

@@ -1,7 +1,6 @@
-
 name: trust_investment
 description: A new Flutter project.
-publish_to: 'none' # Remove this line if you want to publish to pub.dev
+publish_to: 'none'
 
 environment:
   sdk: '>=3.9.0 <4.0.0'
@@ -28,34 +27,19 @@ dependencies:
   shimmer: ^3.0.0
   intl_phone_field: ^3.0.1
   clipboard: ^0.1.3
-  
 
- 
 flutter:
-
   uses-material-design: true
 
-  # Fonts (to support missing characters like Amharic)
-  fonts:
-    - family: NotoSans
-      fonts:
-        - asset: assets/fonts/NotoSans-Regular.ttf
-        - asset: assets/fonts/NotoSans-Bold.ttf
-          weight: 700
-    
-  # Assets
+  # ONLY list your image assets
   assets:
-  
-   - assets/images/car_1.jpg
-   - assets/images/car_2.jpg
-   - assets/images/car_3.jpg
-   - assets/images/car_4.jpg
-   - assets/images/car_5.jpg
-   - assets/images/car_6.jpg
-   - assets/images/car_7.jpg
-   - assets/images/car_8.jpg
-   - assets/images/logo_top.jpg
-   - assets/images/car.jpg
-  
-  
-  
+    - assets/images/car_1.jpg
+    - assets/images/car_2.jpg
+    - assets/images/car_3.jpg
+    - assets/images/car_4.jpg
+    - assets/images/car_5.jpg
+    - assets/images/car_6.jpg
+    - assets/images/car_7.jpg
+    - assets/images/car_8.jpg
+    - assets/images/logo_top.jpg
+    - assets/images/car.jpg

@@ -8,10 +8,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
+import 'package:google_fonts/google_fonts.dart'; // ADD THIS IMPORT
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
+
+// Import your real API service
 import 'api_service.dart';
 
 class SupportChatPage extends StatefulWidget {
@@ -104,7 +107,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
                 ? DateTime.parse(msg['timestamp'].toString())
                 : DateTime.now(),
             'image_path': msg['image_path'],
-            'image_base64': msg['image_base64'], // For web storage
+            'image_base64': msg['image_base64'],
             'type': msg['type'] ?? 'text',
             'is_sent': msg['is_sent'] ?? true,
             'is_error': msg['is_error'] ?? false,
@@ -133,7 +136,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
       print("❌ Error loading local messages: $e");
     }
 
-    // Try to load from API
+    // Try to load from REAL API
     try {
       final chatHistory = await ApiService.fetchChatHistory(token: widget.token);
       if (chatHistory.isNotEmpty) {
@@ -164,69 +167,52 @@ class _SupportChatPageState extends State<SupportChatPage> {
       }
     } catch (e) {
       print("❌ Chat history API error: $e");
-    }
-
-    // If both fail, use mock data
-    await Future.delayed(const Duration(milliseconds: 500));
-
-    final mockMessages = [
-      {
+      
+      // If API fails, show empty chat with welcome message
+      final welcomeMessage = {
         'id': '1',
         'content': 'Hello! 👋 How can I help you today?',
         'sender': 'support',
-        'timestamp': DateTime.now().subtract(const Duration(minutes: 30)),
+        'timestamp': DateTime.now(),
         'type': 'text',
         'is_sent': true,
         'is_error': false,
-      },
-      {
-        'id': '2',
-        'content': 'I need help with my deposit.',
-        'sender': 'user',
-        'timestamp': DateTime.now().subtract(const Duration(minutes: 25)),
-        'type': 'text',
-        'is_sent': true,
-        'is_error': false,
-      },
-      {
-        'id': '3',
-        'content': 'Sure! Please provide your transaction ID.',
-        'sender': 'support',
-        'timestamp': DateTime.now().subtract(const Duration(minutes: 20)),
-        'type': 'text',
-        'is_sent': true,
-        'is_error': false,
-      },
-      {
-        'id': '4',
-        'content': 'My transaction ID is TXN123456',
-        'sender': 'user',
-        'timestamp': DateTime.now().subtract(const Duration(minutes: 15)),
-        'type': 'text',
-        'is_sent': true,
-        'is_error': false,
-      },
-      {
-        'id': '5',
-        'content': 'I\'ll check that for you. Please wait a moment.',
-        'sender': 'support',
-        'timestamp': DateTime.now().subtract(const Duration(minutes: 10)),
-        'type': 'text',
-        'is_sent': true,
-        'is_error': false,
-      },
-    ];
+      };
+      
+      setState(() {
+        _messages = [welcomeMessage];
+        _isLoading = false;
+      });
+      
+      // Save welcome message locally
+      await _saveAllMessagesLocally([welcomeMessage]);
+      
+      // Scroll to bottom after loading
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollToBottom();
+      });
+      
+      return;
+    }
 
-    // Sort mock messages by timestamp
-    mockMessages.sort((a, b) => (a['timestamp'] as DateTime).compareTo(b['timestamp'] as DateTime));
+    // If API returns empty, show welcome message
+    final welcomeMessage = {
+      'id': '1',
+      'content': 'Hello! 👋 How can I help you today?',
+      'sender': 'support',
+      'timestamp': DateTime.now(),
+      'type': 'text',
+      'is_sent': true,
+      'is_error': false,
+    };
     
     setState(() {
-      _messages = mockMessages;
+      _messages = [welcomeMessage];
       _isLoading = false;
     });
 
-    // Save mock data to local storage
-    await _saveAllMessagesLocally(mockMessages);
+    // Save welcome message to local storage
+    await _saveAllMessagesLocally([welcomeMessage]);
 
     // Scroll to bottom after loading
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -281,7 +267,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
     final messageIndex = _messages.indexWhere((msg) => msg['id'] == 'user_$messageId');
     
     try {
-      // Try to send via API
+      // Try to send via REAL API
       final result = await ApiService.sendMessage(
         token: widget.token,
         message: message,
@@ -307,6 +293,40 @@ class _SupportChatPageState extends State<SupportChatPage> {
           await _updateMessageLocally(updatedMessage);
         }
         
+        // Get real support response from API if available
+        if (result.containsKey('support_response') && result['support_response'] != null) {
+          final supportResponse = result['support_response']?.toString() ?? _getSupportResponse(message);
+          
+          final supportMessageId = DateTime.now().millisecondsSinceEpoch;
+          final supportMessage = {
+            'id': 'support_$supportMessageId',
+            'content': supportResponse,
+            'sender': 'support',
+            'timestamp': DateTime.now(),
+            'type': 'text',
+            'is_sent': true,
+            'is_error': false,
+          };
+
+          setState(() {
+            _messages.add(supportMessage);
+            _isSending = false;
+          });
+
+          // Save support response locally
+          await _saveMessageLocally(supportMessage);
+
+          // Scroll to show new message
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _scrollToBottom();
+          });
+        } else {
+          // No support response from API, just stop sending indicator
+          setState(() {
+            _isSending = false;
+          });
+        }
+        
       } else {
         print("⚠️ API send failed: ${result['message']}");
         
@@ -320,6 +340,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
           
           setState(() {
             _messages[messageIndex] = errorMessage;
+            _isSending = false;
           });
           
           // Update in local storage
@@ -339,42 +360,13 @@ class _SupportChatPageState extends State<SupportChatPage> {
         
         setState(() {
           _messages[messageIndex] = errorMessage;
+          _isSending = false;
         });
         
         // Update in local storage
         await _updateMessageLocally(errorMessage);
       }
     }
-
-    // Simulate support response after a delay
-    await Future.delayed(const Duration(seconds: 1));
-
-    // Generate support response
-    String supportResponse = _getSupportResponse(message);
-    
-    final supportMessageId = DateTime.now().millisecondsSinceEpoch;
-    final supportMessage = {
-      'id': 'support_$supportMessageId',
-      'content': supportResponse,
-      'sender': 'support',
-      'timestamp': DateTime.now(),
-      'type': 'text',
-      'is_sent': true,
-      'is_error': false,
-    };
-
-    setState(() {
-      _messages.add(supportMessage); // Add to end (most recent)
-      _isSending = false;
-    });
-
-    // Save support response locally
-    await _saveMessageLocally(supportMessage);
-
-    // Scroll to show new message
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scrollToBottom();
-    });
   }
 
   String _getSupportResponse(String userMessage) {
@@ -398,6 +390,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
   Future<void> _pickImage() async {
     final picker = ImagePicker();
     final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+    
     if (image != null) {
       String? imageBase64;
       
@@ -436,49 +429,33 @@ class _SupportChatPageState extends State<SupportChatPage> {
         _scrollToBottom();
       });
 
-      // Simulate uploading and support response
-      await Future.delayed(const Duration(seconds: 2));
-      
-      // Update message status to sent
-      final messageIndex = _messages.indexWhere((msg) => msg['id'] == 'image_$messageId');
-      if (messageIndex != -1) {
-        final updatedMessage = {
-          ..._messages[messageIndex],
-          'is_sent': true,
-        };
-        
-        setState(() {
-          _messages[messageIndex] = updatedMessage;
-        });
-        
-        await _updateMessageLocally(updatedMessage);
+      try {
+        // Try to send image via REAL API
+        final result = await ApiService.sendMessage(
+          token: widget.token,
+          message: '📸 Image', // You might need a different API endpoint for images
+          sender: 'user',
+        );
+
+        if (result['success'] == true) {
+          // Update message status to sent
+          final messageIndex = _messages.indexWhere((msg) => msg['id'] == 'image_$messageId');
+          if (messageIndex != -1) {
+            final updatedMessage = {
+              ..._messages[messageIndex],
+              'is_sent': true,
+            };
+            
+            setState(() {
+              _messages[messageIndex] = updatedMessage;
+            });
+            
+            await _updateMessageLocally(updatedMessage);
+          }
+        }
+      } catch (e) {
+        print("❌ Error sending image: $e");
       }
-      
-      // Simulate support response
-      await Future.delayed(const Duration(seconds: 1));
-      
-      final supportMessageId = DateTime.now().millisecondsSinceEpoch;
-      final supportMessage = {
-        'id': 'support_$supportMessageId',
-        'content': 'Thank you for sharing the image. I\'ll review it and get back to you shortly. 📸',
-        'sender': 'support',
-        'timestamp': DateTime.now(),
-        'type': 'text',
-        'is_sent': true,
-        'is_error': false,
-      };
-
-      setState(() {
-        _messages.add(supportMessage); // Add to end (most recent)
-      });
-
-      // Save support response locally
-      await _saveMessageLocally(supportMessage);
-      
-      // Scroll to show new message
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollToBottom();
-      });
     }
   }
 
@@ -502,12 +479,22 @@ class _SupportChatPageState extends State<SupportChatPage> {
       print("🗑️ Message deleted: $messageId");
       
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Message deleted')),
+        SnackBar(
+          content: Text(
+            'Message deleted',
+            style: GoogleFonts.poppins(), // FIXED
+          ),
+        ),
       );
     } catch (e) {
       print("❌ Error deleting message: $e");
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error deleting message: $e')),
+        SnackBar(
+          content: Text(
+            'Error deleting message: $e',
+            style: GoogleFonts.poppins(), // FIXED
+          ),
+        ),
       );
     }
   }
@@ -688,7 +675,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
                             padding: const EdgeInsets.only(bottom: 4),
                             child: Text(
                               'Support Agent',
-                              style: TextStyle(
+                              style: GoogleFonts.poppins( // FIXED
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
                                 color: Colors.green[700],
@@ -716,7 +703,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
                         else
                           Text(
                             content,
-                            style: const TextStyle(fontSize: 16),
+                            style: GoogleFonts.poppins(fontSize: 16), // FIXED
                           ),
                         const SizedBox(height: 4),
                         Row(
@@ -724,7 +711,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
                           children: [
                             Text(
                               DateFormat('hh:mm a').format(timestamp),
-                              style: TextStyle(
+                              style: GoogleFonts.poppins( // FIXED
                                 fontSize: 10,
                                 color: Colors.grey[600],
                               ),
@@ -848,15 +835,18 @@ class _SupportChatPageState extends State<SupportChatPage> {
       width: 200,
       height: 150,
       color: Colors.grey[300],
-      child: const Center(
+      child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.broken_image, size: 40, color: Colors.grey),
-            SizedBox(height: 8),
+            const Icon(Icons.broken_image, size: 40, color: Colors.grey),
+            const SizedBox(height: 8),
             Text(
               'Image not available',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
+              style: GoogleFonts.poppins( // FIXED
+                fontSize: 12,
+                color: Colors.grey,
+              ),
             ),
           ],
         ),
@@ -889,12 +879,15 @@ class _SupportChatPageState extends State<SupportChatPage> {
                         errorBuilder: (context, error, stackTrace) {
                           return Container(
                             padding: const EdgeInsets.all(20),
-                            child: const Column(
+                            child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.error, size: 50, color: Colors.red),
-                                SizedBox(height: 10),
-                                Text('Image not available'),
+                                const Icon(Icons.error, size: 50, color: Colors.red),
+                                const SizedBox(height: 10),
+                                Text(
+                                  'Image not available',
+                                  style: GoogleFonts.poppins(), // FIXED
+                                ),
                               ],
                             ),
                           );
@@ -915,12 +908,15 @@ class _SupportChatPageState extends State<SupportChatPage> {
                         } else {
                           return Container(
                             padding: const EdgeInsets.all(20),
-                            child: const Column(
+                            child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.error, size: 50, color: Colors.red),
-                                SizedBox(height: 10),
-                                Text('Image not found'),
+                                const Icon(Icons.error, size: 50, color: Colors.red),
+                                const SizedBox(height: 10),
+                                Text(
+                                  'Image not found',
+                                  style: GoogleFonts.poppins(), // FIXED
+                                ),
                               ],
                             ),
                           );
@@ -930,12 +926,15 @@ class _SupportChatPageState extends State<SupportChatPage> {
                   else
                     Container(
                       padding: const EdgeInsets.all(20),
-                      child: const Column(
+                      child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.error, size: 50, color: Colors.red),
-                          SizedBox(height: 10),
-                          Text('Image not available'),
+                          const Icon(Icons.error, size: 50, color: Colors.red),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Image not available',
+                            style: GoogleFonts.poppins(), // FIXED
+                          ),
                         ],
                       ),
                     ),
@@ -977,7 +976,10 @@ class _SupportChatPageState extends State<SupportChatPage> {
               if (hasImage)
                 ListTile(
                   leading: const Icon(Icons.visibility),
-                  title: const Text('View Image'),
+                  title: Text(
+                    'View Image',
+                    style: GoogleFonts.poppins(), // FIXED
+                  ),
                   onTap: () {
                     Navigator.pop(context);
                     _showImagePreview(message);
@@ -985,19 +987,30 @@ class _SupportChatPageState extends State<SupportChatPage> {
                 ),
               ListTile(
                 leading: const Icon(Icons.copy),
-                title: const Text('Copy Text'),
+                title: Text(
+                  'Copy Text',
+                  style: GoogleFonts.poppins(), // FIXED
+                ),
                 onTap: () {
                   Navigator.pop(context);
                   Clipboard.setData(ClipboardData(text: message['content']?.toString() ?? ''));
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Copied to clipboard')),
+                    SnackBar(
+                      content: Text(
+                        'Copied to clipboard',
+                        style: GoogleFonts.poppins(), // FIXED
+                      ),
+                    ),
                   );
                 },
               ),
               if (isUser)
                 ListTile(
                   leading: const Icon(Icons.delete, color: Colors.red),
-                  title: const Text('Delete Message', style: TextStyle(color: Colors.red)),
+                  title: Text(
+                    'Delete Message',
+                    style: GoogleFonts.poppins(color: Colors.red), // FIXED
+                  ),
                   onTap: () {
                     Navigator.pop(context);
                     _confirmDeleteMessage(messageId);
@@ -1005,7 +1018,10 @@ class _SupportChatPageState extends State<SupportChatPage> {
                 ),
               ListTile(
                 leading: const Icon(Icons.cancel),
-                title: const Text('Cancel'),
+                title: Text(
+                  'Cancel',
+                  style: GoogleFonts.poppins(), // FIXED
+                ),
                 onTap: () => Navigator.pop(context),
               ),
             ],
@@ -1019,19 +1035,31 @@ class _SupportChatPageState extends State<SupportChatPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Message'),
-        content: const Text('Are you sure you want to delete this message?'),
+        title: Text(
+          'Delete Message',
+          style: GoogleFonts.poppins(fontWeight: FontWeight.bold), // FIXED
+        ),
+        content: Text(
+          'Are you sure you want to delete this message?',
+          style: GoogleFonts.poppins(), // FIXED
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.poppins(), // FIXED
+            ),
           ),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
               _deleteMessage(messageId);
             },
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            child: Text(
+              'Delete',
+              style: GoogleFonts.poppins(color: Colors.red), // FIXED
+            ),
           ),
         ],
       ),
@@ -1107,11 +1135,11 @@ class _SupportChatPageState extends State<SupportChatPage> {
               children: [
                 Text(
                   'Support Agent',
-                  style: TextStyle(
+                  style: GoogleFonts.poppins( // FIXED
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
                     color: Colors.green[700],
-                ),
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Row(
@@ -1191,20 +1219,20 @@ class _SupportChatPageState extends State<SupportChatPage> {
                         ),
                       ),
                       const SizedBox(width: 12),
-                      const Expanded(
+                      Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
                               'Support Center',
-                              style: TextStyle(
+                              style: GoogleFonts.poppins( // FIXED
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                             Text(
                               'Online - Usually replies instantly',
-                              style: TextStyle(
+                              style: GoogleFonts.poppins( // FIXED
                                 fontSize: 12,
                                 color: Colors.green,
                               ),
@@ -1225,7 +1253,10 @@ class _SupportChatPageState extends State<SupportChatPage> {
                                   children: [
                                     ListTile(
                                       leading: const Icon(Icons.info),
-                                      title: const Text('Chat Info'),
+                                      title: Text(
+                                        'Chat Info',
+                                        style: GoogleFonts.poppins(), // FIXED
+                                      ),
                                       onTap: () {
                                         Navigator.pop(context);
                                         _showChatInfo();
@@ -1233,17 +1264,28 @@ class _SupportChatPageState extends State<SupportChatPage> {
                                     ),
                                     ListTile(
                                       leading: const Icon(Icons.notifications),
-                                      title: const Text('Mute Notifications'),
+                                      title: Text(
+                                        'Mute Notifications',
+                                        style: GoogleFonts.poppins(), // FIXED
+                                      ),
                                       onTap: () {
                                         Navigator.pop(context);
                                         ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text('Notifications muted')),
+                                          SnackBar(
+                                            content: Text(
+                                              'Notifications muted',
+                                              style: GoogleFonts.poppins(), // FIXED
+                                            ),
+                                          ),
                                         );
                                       },
                                     ),
                                     ListTile(
                                       leading: const Icon(Icons.clear_all),
-                                      title: const Text('Clear Chat'),
+                                      title: Text(
+                                        'Clear Chat',
+                                        style: GoogleFonts.poppins(), // FIXED
+                                      ),
                                       onTap: () {
                                         Navigator.pop(context);
                                         _clearChat();
@@ -1251,7 +1293,10 @@ class _SupportChatPageState extends State<SupportChatPage> {
                                     ),
                                     ListTile(
                                       leading: const Icon(Icons.report),
-                                      title: const Text('Report Issue'),
+                                      title: Text(
+                                        'Report Issue',
+                                        style: GoogleFonts.poppins(), // FIXED
+                                      ),
                                       onTap: () {
                                         Navigator.pop(context);
                                         _reportIssue();
@@ -1326,8 +1371,9 @@ class _SupportChatPageState extends State<SupportChatPage> {
                           ),
                           child: TextField(
                             controller: _messageController,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               hintText: 'Type a message...',
+                              hintStyle: GoogleFonts.poppins(), // FIXED
                               border: InputBorder.none,
                             ),
                             maxLines: null,
@@ -1379,25 +1425,52 @@ class _SupportChatPageState extends State<SupportChatPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Chat Information'),
+        title: Text(
+          'Chat Information',
+          style: GoogleFonts.poppins(fontWeight: FontWeight.bold), // FIXED
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('• Support Team: Available 24/7'),
-            const Text('• Average Response Time: < 2 minutes'),
-            Text('• Chat ID: $chatId'),
-            Text('• Started: $startedDate'),
+            Text(
+              '• Support Team: Available 24/7',
+              style: GoogleFonts.poppins(), // FIXED
+            ),
+            Text(
+              '• Average Response Time: < 2 minutes',
+              style: GoogleFonts.poppins(), // FIXED
+            ),
+            Text(
+              '• Chat ID: $chatId',
+              style: GoogleFonts.poppins(), // FIXED
+            ),
+            Text(
+              '• Started: $startedDate',
+              style: GoogleFonts.poppins(), // FIXED
+            ),
             const SizedBox(height: 8),
-            Text('• Messages: ${_messages.length}'),
-            Text('• User: ${widget.userName}'),
-            Text('• Images: ${_messages.where((msg) => msg['type'] == 'image').length}'),
+            Text(
+              '• Messages: ${_messages.length}',
+              style: GoogleFonts.poppins(), // FIXED
+            ),
+            Text(
+              '• User: ${widget.userName}',
+              style: GoogleFonts.poppins(), // FIXED
+            ),
+            Text(
+              '• Images: ${_messages.where((msg) => msg['type'] == 'image').length}',
+              style: GoogleFonts.poppins(), // FIXED
+            ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+            child: Text(
+              'Close',
+              style: GoogleFonts.poppins(), // FIXED
+            ),
           ),
         ],
       ),
@@ -1408,12 +1481,21 @@ class _SupportChatPageState extends State<SupportChatPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Clear Chat'),
-        content: const Text('Are you sure you want to clear all chat messages? This cannot be undone.'),
+        title: Text(
+          'Clear Chat',
+          style: GoogleFonts.poppins(fontWeight: FontWeight.bold), // FIXED
+        ),
+        content: Text(
+          'Are you sure you want to clear all chat messages? This cannot be undone.',
+          style: GoogleFonts.poppins(), // FIXED
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.poppins(), // FIXED
+            ),
           ),
           TextButton(
             onPressed: () async {
@@ -1427,16 +1509,29 @@ class _SupportChatPageState extends State<SupportChatPage> {
                 
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Chat cleared')),
+                  SnackBar(
+                    content: Text(
+                      'Chat cleared',
+                      style: GoogleFonts.poppins(), // FIXED
+                    ),
+                  ),
                 );
               } catch (e) {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Error clearing chat: $e')),
+                  SnackBar(
+                    content: Text(
+                      'Error clearing chat: $e',
+                      style: GoogleFonts.poppins(), // FIXED
+                    ),
+                  ),
                 );
               }
             },
-            child: const Text('Clear', style: TextStyle(color: Colors.red)),
+            child: Text(
+              'Clear',
+              style: GoogleFonts.poppins(color: Colors.red), // FIXED
+            ),
           ),
         ],
       ),
@@ -1447,21 +1542,38 @@ class _SupportChatPageState extends State<SupportChatPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Report Issue'),
-        content: const Text('Please describe the issue you\'re experiencing:'),
+        title: Text(
+          'Report Issue',
+          style: GoogleFonts.poppins(fontWeight: FontWeight.bold), // FIXED
+        ),
+        content: Text(
+          'Please describe the issue you\'re experiencing:',
+          style: GoogleFonts.poppins(), // FIXED
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.poppins(), // FIXED
+            ),
           ),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Issue reported successfully')),
+                SnackBar(
+                  content: Text(
+                    'Issue reported successfully',
+                    style: GoogleFonts.poppins(), // FIXED
+                  ),
+                ),
               );
             },
-            child: const Text('Submit'),
+            child: Text(
+              'Submit',
+              style: GoogleFonts.poppins(), // FIXED
+            ),
           ),
         ],
       ),

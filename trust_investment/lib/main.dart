@@ -11,7 +11,7 @@ import 'pages/income_page.dart';
 import 'pages/news_page.dart';
 import 'pages/team_page.dart';
 import 'pages/support_chat_page.dart';
-import 'pages/order_page.dart'; // Corrected path - added 'pages/'
+import 'pages/order_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -26,7 +26,7 @@ class MyApp extends StatelessWidget {
       title: 'Trust Investment',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        primaryColor: const Color(0xFF8A2BE2), // Changed to purple
+        primaryColor: const Color(0xFF8A2BE2),
         scaffoldBackgroundColor: const Color(0xFFF5F5F5),
         colorScheme: ColorScheme.light(
           primary: const Color(0xFF8A2BE2),
@@ -71,16 +71,13 @@ class _MainNavigationState extends State<MainNavigation> {
       case 0:
         return HomePage(token: widget.token);
       case 1:
-        return OrderPage(
-          token: widget.token,
-          vipData: {}, // Pass empty list or fetch from somewhere
-        );
+        return OrderPage(token: widget.token); // FIXED: Removed vipData parameter
       case 2:
         return NewsPage(token: widget.token);
       case 3:
         return SupportChatPage(
           token: widget.token,
-          userName: 'User', // You should pass actual username
+          userName: 'User',
         );
       case 4:
         return TeamPage(token: widget.token);
@@ -102,7 +99,7 @@ class _MainNavigationState extends State<MainNavigation> {
   Widget _buildBottomNavigation() {
     final items = [
       {'icon': Icons.home, 'label': 'Home'},
-      {'icon': Icons.trending_up, 'label': 'Income'},
+      {'icon': Icons.trending_up, 'label': 'Income'}, // Changed from 'Orders' to 'Income'
       {'icon': Icons.article, 'label': 'News'},
       {'icon': Icons.chat, 'label': 'Chat'},
       {'icon': Icons.people, 'label': 'Team'},

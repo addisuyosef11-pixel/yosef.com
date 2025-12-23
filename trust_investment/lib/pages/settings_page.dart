@@ -14,577 +14,555 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   bool _notificationsEnabled = true;
   bool _darkModeEnabled = false;
-
-  static const Color primaryColor = Color(0xFF9C27B0);
-  static const Color secondaryColor = Color(0xFF7B1FA2);
-  static const Color gradientStart = Color(0xFF9C27B0);
-  static const Color gradientEnd = Color(0xFF7B1FA2);
-  static const Color cardColor = Colors.white;
-  static const Color textColor = Colors.black87;
-  static const Color subtitleColor = Colors.black54;
-  static const Color backgroundColor = Color(0xFFF5F5F5);
+  bool _biometricEnabled = false;
+  bool _autoUpdateEnabled = true;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: backgroundColor,
-      body: Stack(
-        children: [
-          // Header with wave design
-          _buildHeader(),
-          
-          // Back button - MOVED INSIDE SafeArea
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 10,
-            left: 16,
-            child: GestureDetector(
-              onTap: () => Navigator.pop(context),
-              child: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
+      backgroundColor: Colors.grey[50],
+      body: CustomScrollView(
+        slivers: [
+          // Header
+          SliverAppBar(
+            expandedHeight: 180,
+            floating: false,
+            pinned: true,
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            leading: Padding(
+              padding: const EdgeInsets.only(left: 8.0),
+              child: IconButton(
+                icon: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.9),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.arrow_back_ios_rounded,
+                    color: Colors.deepPurple,
+                    size: 20,
+                  ),
                 ),
-                child: const Icon(
-                  Icons.arrow_back_ios,
-                  color: Colors.white,
-                  size: 20,
-                ),
+                onPressed: () => Navigator.pop(context),
               ),
             ),
-          ),
-
-          // Main content
-          Positioned.fill(
-            top: 200, // Reduced from 180 to give more space
-            child: Container(
-              decoration: const BoxDecoration(
-                color: backgroundColor,
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(30),
-                  topRight: Radius.circular(30),
+            flexibleSpace: FlexibleSpaceBar(
+              titlePadding: const EdgeInsets.only(left: 70, bottom: 16),
+              collapseMode: CollapseMode.pin,
+              background: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.deepPurple,
+                      Colors.purple,
+                    ],
+                  ),
                 ),
-              ),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Stack(
                   children: [
-                    const SizedBox(height: 20),
-                    
-                    // ===== ACCOUNT SECURITY =====
-                    _buildSectionTitle("Account Security"),
-                    _buildSettingsTile(
-                      icon: Icons.lock_outline,
-                      title: "Set Withdraw Password",
-                      subtitle: "Create a secure withdrawal password",
-                      color: const Color(0xFF42A5F5),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => SetWithdrawPasswordPage(token: widget.token),
-                          ),
-                        );
-                      },
-                    ),
-                    _buildSettingsTile(
-                      icon: Icons.vpn_key_outlined,
-                      title: "Change Withdraw Password",
-                      subtitle: "Update your existing password",
-                      color: const Color(0xFFFF7043),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => ChangeWithdrawPasswordPage(token: widget.token),
-                          ),
-                        );
-                      },
-                    ),
-                    _buildSettingsTile(
-                      icon: Icons.account_balance_outlined,
-                      title: "Bank Account",
-                      subtitle: "Manage your linked bank account",
-                      color: const Color(0xFF66BB6A),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => AccountNumberPage(token: widget.token),
-                          ),
-                        );
-                      },
-                    ),
-
-                    // ===== PREFERENCES =====
-                    const SizedBox(height: 24),
-                    _buildSectionTitle("Preferences"),
-                    _buildSwitchTile(
-                      icon: Icons.notifications_active_outlined,
-                      title: "Push Notifications",
-                      subtitle: "Receive important updates",
-                      value: _notificationsEnabled,
-                      color: const Color(0xFFFFB74D),
-                      onChanged: (val) {
-                        setState(() => _notificationsEnabled = val);
-                        // TODO: Save preference to backend
-                      },
-                    ),
-                    _buildSwitchTile(
-                      icon: Icons.dark_mode_outlined,
-                      title: "Dark Mode",
-                      subtitle: "Switch to dark theme",
-                      value: _darkModeEnabled,
-                      color: const Color(0xFF78909C),
-                      onChanged: (val) {
-                        setState(() => _darkModeEnabled = val);
-                        // TODO: Implement dark mode
-                      },
-                    ),
-
-                    // ===== APP INFO =====
-                    const SizedBox(height: 24),
-                    _buildSectionTitle("About"),
-                    _buildInfoTile(
-                      icon: Icons.info_outline,
-                      title: "App Version",
-                      subtitle: "1.0.0",
-                      color: const Color(0xFF9C27B0),
-                    ),
-                    _buildInfoTile(
-                      icon: Icons.security_outlined,
-                      title: "Privacy Policy",
-                      subtitle: "View our privacy terms",
-                      color: const Color(0xFF5C6BC0),
-                      onTap: () {
-                        // TODO: Show privacy policy
-                      },
-                    ),
-                    _buildInfoTile(
-                      icon: Icons.help_outline,
-                      title: "Help & Support",
-                      subtitle: "Contact our support team",
-                      color: const Color(0xFF26A69A),
-                      onTap: () {
-                        // TODO: Show support page
-                      },
-                    ),
-
-                    // Logout Button
-                    const SizedBox(height: 32),
-                    Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 16),
-                      child: ElevatedButton(
-                        onPressed: () {
-                          // TODO: Implement logout
-                          Navigator.pop(context);
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          elevation: 4,
-                          minimumSize: const Size(double.infinity, 50),
+                    // Background pattern
+                    Positioned(
+                      right: -50,
+                      top: -50,
+                      child: Container(
+                        width: 200,
+                        height: 200,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withOpacity(0.1),
                         ),
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                      ),
+                    ),
+                    // Content
+                    Padding(
+                      padding: const EdgeInsets.only(left: 24, bottom: 24),
+                      child: Align(
+                        alignment: Alignment.bottomLeft,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(Icons.logout, size: 20),
-                            SizedBox(width: 10),
-                            Text(
-                              'Logout',
+                            const Text(
+                              'Settings',
                               style: TextStyle(
-                                fontSize: 16,
+                                color: Colors.white,
+                                fontSize: 32,
                                 fontWeight: FontWeight.bold,
+                                height: 1.2,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Customize your experience',
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.9),
+                                fontSize: 14,
                               ),
                             ),
                           ],
                         ),
                       ),
                     ),
-                    const SizedBox(height: 20),
                   ],
                 ),
               ),
             ),
+          ),
+
+          // Settings List
+          SliverList(
+            delegate: SliverChildListDelegate([
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Account Security Section
+                    _buildSectionHeader('Account Security'),
+                    const SizedBox(height: 12),
+                    _buildModernCard(
+                      children: [
+                        _buildModernTile(
+                          icon: Icons.lock_outline,
+                          title: 'Set Withdraw Password',
+                          subtitle: 'Create a secure withdrawal password',
+                          iconColor: Colors.blue,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => SetWithdrawPasswordPage(token: widget.token),
+                              ),
+                            );
+                          },
+                        ),
+                        _buildDivider(),
+                        _buildModernTile(
+                          icon: Icons.vpn_key_outlined,
+                          title: 'Change Withdraw Password',
+                          subtitle: 'Update your existing password',
+                          iconColor: Colors.orange,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ChangeWithdrawPasswordPage(token: widget.token),
+                              ),
+                            );
+                          },
+                        ),
+                        _buildDivider(),
+                        _buildModernTile(
+                          icon: Icons.account_balance_outlined,
+                          title: 'Bank Account',
+                          subtitle: 'Manage your linked bank account',
+                          iconColor: Colors.green,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => AccountNumberPage(token: widget.token),
+                              ),
+                            );
+                          },
+                        ),
+                        _buildDivider(),
+                        _buildModernSwitchTile(
+                          icon: Icons.fingerprint_outlined,
+                          title: 'Biometric Login',
+                          subtitle: 'Use fingerprint or face ID',
+                          iconColor: Colors.purple,
+                          value: _biometricEnabled,
+                          onChanged: (val) {
+                            setState(() => _biometricEnabled = val);
+                          },
+                        ),
+                      ],
+                    ),
+
+                    // Preferences Section
+                    const SizedBox(height: 24),
+                    _buildSectionHeader('Preferences'),
+                    const SizedBox(height: 12),
+                    _buildModernCard(
+                      children: [
+                        _buildModernSwitchTile(
+                          icon: Icons.notifications_active_outlined,
+                          title: 'Push Notifications',
+                          subtitle: 'Receive important updates',
+                          iconColor: Colors.amber,
+                          value: _notificationsEnabled,
+                          onChanged: (val) {
+                            setState(() => _notificationsEnabled = val);
+                          },
+                        ),
+                        _buildDivider(),
+                        _buildModernSwitchTile(
+                          icon: Icons.dark_mode_outlined,
+                          title: 'Dark Mode',
+                          subtitle: 'Switch to dark theme',
+                          iconColor: Colors.indigo,
+                          value: _darkModeEnabled,
+                          onChanged: (val) {
+                            setState(() => _darkModeEnabled = val);
+                          },
+                        ),
+                        _buildDivider(),
+                        _buildModernSwitchTile(
+                          icon: Icons.update_outlined,
+                          title: 'Auto Update',
+                          subtitle: 'Automatically update app',
+                          iconColor: Colors.teal,
+                          value: _autoUpdateEnabled,
+                          onChanged: (val) {
+                            setState(() => _autoUpdateEnabled = val);
+                          },
+                        ),
+                      ],
+                    ),
+
+                    // Support Section
+                    const SizedBox(height: 24),
+                    _buildSectionHeader('Support'),
+                    const SizedBox(height: 12),
+                    _buildModernCard(
+                      children: [
+                        _buildModernTile(
+                          icon: Icons.help_outline,
+                          title: 'Help Center',
+                          subtitle: 'Get answers to your questions',
+                          iconColor: Colors.blueGrey,
+                          onTap: () {
+                            // TODO: Navigate to help center
+                          },
+                        ),
+                        _buildDivider(),
+                        _buildModernTile(
+                          icon: Icons.security_outlined,
+                          title: 'Privacy Policy',
+                          subtitle: 'View our privacy terms',
+                          iconColor: Colors.deepPurple,
+                          onTap: () {
+                            // TODO: Show privacy policy
+                          },
+                        ),
+                        _buildDivider(),
+                        _buildModernTile(
+                          icon: Icons.description_outlined,
+                          title: 'Terms of Service',
+                          subtitle: 'Read our terms and conditions',
+                          iconColor: Colors.brown,
+                          onTap: () {
+                            // TODO: Show terms of service
+                          },
+                        ),
+                        _buildDivider(),
+                        _buildModernTile(
+                          icon: Icons.info_outline,
+                          title: 'About',
+                          subtitle: 'App version 1.0.0',
+                          iconColor: Colors.pink,
+                          onTap: () {
+                            // TODO: Show about dialog
+                          },
+                        ),
+                      ],
+                    ),
+
+                    // Account Actions
+                    const SizedBox(height: 24),
+                    _buildSectionHeader('Account'),
+                    const SizedBox(height: 12),
+                    _buildModernCard(
+                      children: [
+                        _buildModernTile(
+                          icon: Icons.person_outline,
+                          title: 'Edit Profile',
+                          subtitle: 'Update your personal information',
+                          iconColor: Colors.cyan,
+                          onTap: () {
+                            // TODO: Navigate to edit profile
+                          },
+                        ),
+                        _buildDivider(),
+                        _buildModernTile(
+                          icon: Icons.history_outlined,
+                          title: 'Activity Log',
+                          subtitle: 'View your account activity',
+                          iconColor: Colors.deepOrange,
+                          onTap: () {
+                            // TODO: Show activity log
+                          },
+                        ),
+                        _buildDivider(),
+                        _buildModernTile(
+                          icon: Icons.delete_outline,
+                          title: 'Delete Account',
+                          subtitle: 'Permanently delete your account',
+                          iconColor: Colors.red,
+                          textColor: Colors.red,
+                          onTap: () {
+                            // TODO: Show delete account confirmation
+                          },
+                        ),
+                      ],
+                    ),
+
+                    // Logout Button
+                    const SizedBox(height: 32),
+                    Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          _showLogoutConfirmation(context);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Colors.red,
+                          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            side: BorderSide(color: Colors.red.withOpacity(0.3), width: 1),
+                          ),
+                          elevation: 2,
+                          minimumSize: const Size(double.infinity, 56),
+                        ),
+                        icon: const Icon(Icons.logout, size: 20),
+                        label: const Text(
+                          'Logout',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+                ),
+              ),
+            ]),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 8.0),
+      child: Text(
+        title,
+        style: const TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w700,
+          color: Colors.black87,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModernCard({required List<Widget> children}) {
     return Container(
-      height: 220, // Reduced height to show more content
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [gradientStart, gradientEnd],
-        ),
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(30),
-          bottomRight: Radius.circular(30),
-        ),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.purple.withOpacity(0.3),
+            color: Colors.black.withOpacity(0.05),
             blurRadius: 20,
-            offset: const Offset(0, 10),
+            offset: const Offset(0, 4),
           ),
         ],
       ),
-      child: SafeArea(
-        bottom: false,
-        child: Stack(
+      child: Column(
+        children: children,
+      ),
+    );
+  }
+
+  Widget _buildDivider() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: Divider(
+        height: 1,
+        thickness: 1,
+        color: Colors.grey[200],
+      ),
+    );
+  }
+
+  Widget _buildModernTile({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    required Color iconColor,
+    Color? textColor,
+    VoidCallback? onTap,
+  }) {
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      leading: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: iconColor.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(
+          icon,
+          color: iconColor,
+          size: 22,
+        ),
+      ),
+      title: Text(
+        title,
+        style: TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+          color: textColor ?? Colors.black87,
+        ),
+      ),
+      subtitle: subtitle != null
+          ? Text(
+              subtitle,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+                height: 1.4,
+              ),
+            )
+          : null,
+      trailing: onTap != null
+          ? Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                Icons.arrow_forward_ios_rounded,
+                color: Colors.grey[600],
+                size: 16,
+              ),
+            )
+          : null,
+      onTap: onTap,
+    );
+  }
+
+  Widget _buildModernSwitchTile({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    required Color iconColor,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      leading: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: iconColor.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(
+          icon,
+          color: iconColor,
+          size: 22,
+        ),
+      ),
+      title: Text(
+        title,
+        style: const TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+          color: Colors.black87,
+        ),
+      ),
+      subtitle: subtitle != null
+          ? Text(
+              subtitle,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+                height: 1.4,
+              ),
+            )
+          : null,
+      trailing: Transform.scale(
+        scale: 0.9,
+        child: Switch.adaptive(
+          value: value,
+          onChanged: onChanged,
+          activeColor: Colors.deepPurple,
+          activeTrackColor: Colors.deepPurple.withOpacity(0.3),
+          inactiveThumbColor: Colors.grey[400],
+          inactiveTrackColor: Colors.grey.withOpacity(0.3),
+        ),
+      ),
+      onTap: () => onChanged(!value),
+    );
+  }
+
+  void _showLogoutConfirmation(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: const Row(
           children: [
-            // Wave design at bottom
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: ClipRRect(
-                borderRadius: const BorderRadius.only(
-                  bottomLeft: Radius.circular(30),
-                  bottomRight: Radius.circular(30),
-                ),
-                child: SizedBox(
-                  height: 60,
-                  child: CustomPaint(
-                    size: const Size(double.infinity, 60),
-                    painter: WavePainter(),
-                  ),
-                ),
-              ),
-            ),
-            
-            // Decorative circles
-            Positioned(
-              top: -40,
-              right: -40,
-              child: Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withOpacity(0.1),
-                ),
-              ),
-            ),
-            Positioned(
-              top: 40,
-              left: -20,
-              child: Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withOpacity(0.05),
-                ),
-              ),
-            ),
-            
-            // Header content
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 30.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 70,
-                      height: 70,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white.withOpacity(0.3), width: 2),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.1),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        Icons.settings,
-                        color: Colors.white,
-                        size: 35,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Settings',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Manage your account preferences',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.8),
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
+            Icon(Icons.logout, color: Colors.red),
+            SizedBox(width: 12),
+            Text(
+              'Logout',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
               ),
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  // Section Header
-  Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 8, bottom: 8, top: 4),
-      child: Text(
-        title,
-        style: const TextStyle(
-          color: primaryColor,
-          fontSize: 16,
-          fontWeight: FontWeight.bold,
+        content: const Text(
+          'Are you sure you want to logout from your account?',
+          style: TextStyle(
+            fontSize: 14,
+            color: Colors.black87,
+          ),
         ),
-      ),
-    );
-  }
-
-  // Settings tile with gradient background
-  Widget _buildSettingsTile({
-    required IconData icon,
-    required String title,
-    String? subtitle,
-    required Color color,
-    VoidCallback? onTap,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: Material(
-        borderRadius: BorderRadius.circular(16),
-        elevation: 2,
-        child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          leading: Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [color.withOpacity(0.2), color.withOpacity(0.4)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.grey[700],
+            ),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              Navigator.pop(context); // Go back to previous screen
+              // TODO: Implement logout logic
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
               ),
-              borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(
-              icon,
-              color: color,
-              size: 22,
-            ),
+            child: const Text('Logout'),
           ),
-          title: Text(
-            title,
-            style: const TextStyle(
-              color: textColor,
-              fontWeight: FontWeight.w600,
-              fontSize: 15,
-            ),
-          ),
-          subtitle: subtitle != null
-              ? Text(
-                  subtitle,
-                  style: TextStyle(
-                    color: subtitleColor,
-                    fontSize: 11,
-                  ),
-                )
-              : null,
-          trailing: Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(
-              Icons.arrow_forward_ios,
-              color: color,
-              size: 14,
-            ),
-          ),
-          onTap: onTap,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-        ),
+        ],
       ),
     );
   }
-
-  // Switch tile with gradient
-  Widget _buildSwitchTile({
-    required IconData icon,
-    required String title,
-    String? subtitle,
-    required bool value,
-    required Color color,
-    required ValueChanged<bool> onChanged,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: Material(
-        borderRadius: BorderRadius.circular(16),
-        elevation: 2,
-        child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          leading: Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [color.withOpacity(0.2), color.withOpacity(0.4)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              icon,
-              color: color,
-              size: 22,
-            ),
-          ),
-          title: Text(
-            title,
-            style: const TextStyle(
-              color: textColor,
-              fontWeight: FontWeight.w600,
-              fontSize: 15,
-            ),
-          ),
-          subtitle: subtitle != null
-              ? Text(
-                  subtitle,
-                  style: TextStyle(
-                    color: subtitleColor,
-                    fontSize: 11,
-                  ),
-                )
-              : null,
-          trailing: Switch(
-            value: value,
-            onChanged: onChanged,
-            activeColor: primaryColor,
-            activeTrackColor: primaryColor.withOpacity(0.3),
-            inactiveThumbColor: Colors.grey[400],
-            inactiveTrackColor: Colors.grey.withOpacity(0.3),
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Info tile (non-interactive)
-  Widget _buildInfoTile({
-    required IconData icon,
-    required String title,
-    String? subtitle,
-    required Color color,
-    VoidCallback? onTap,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: Material(
-        borderRadius: BorderRadius.circular(16),
-        elevation: 1,
-        color: Colors.grey[50],
-        child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          leading: Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              icon,
-              color: color,
-              size: 22,
-            ),
-          ),
-          title: Text(
-            title,
-            style: const TextStyle(
-              color: textColor,
-              fontWeight: FontWeight.w600,
-              fontSize: 15,
-            ),
-          ),
-          subtitle: subtitle != null
-              ? Text(
-                  subtitle,
-                  style: TextStyle(
-                    color: subtitleColor,
-                    fontSize: 11,
-                  ),
-                )
-              : null,
-          trailing: onTap != null
-              ? Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    Icons.arrow_forward_ios,
-                    color: color,
-                    size: 14,
-                  ),
-                )
-              : null,
-          onTap: onTap,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class WavePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.white.withOpacity(0.2)
-      ..style = PaintingStyle.fill;
-
-    final path = Path()
-      ..moveTo(0, size.height * 0.5)
-      ..quadraticBezierTo(size.width * 0.25, size.height * 0.3, size.width * 0.5, size.height * 0.5)
-      ..quadraticBezierTo(size.width * 0.75, size.height * 0.7, size.width, size.height * 0.4)
-      ..lineTo(size.width, size.height)
-      ..lineTo(0, size.height)
-      ..close();
-
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

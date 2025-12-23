@@ -215,3 +215,80 @@ class InviteRewardSerializer(serializers.ModelSerializer):
     class Meta:
         model = InviteReward
         fields = ['id', 'profile', 'invited_user', 'reward_amount', 'date']
+
+
+# serializers.py
+from rest_framework import serializers
+from .models import Video
+from django.contrib.auth.models import User
+import os
+
+class VideoSerializer(serializers.ModelSerializer):
+    video_url = serializers.SerializerMethodField()
+    thumbnail_url = serializers.SerializerMethodField()
+    uploaded_by_username = serializers.CharField(source='uploaded_by.username', read_only=True)
+    formatted_duration = serializers.SerializerMethodField()
+    formatted_file_size = serializers.SerializerMethodField()
+    is_owner = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Video
+        fields = [
+            'id', 'title', 'description', 'video_url', 'thumbnail_url',
+            'category', 'duration', 'formatted_duration', 'file_size',
+            'formatted_file_size', 'views', 'likes', 'dislikes',
+            'is_featured', 'is_published', 'status', 'uploaded_by',
+            'uploaded_by_username', 'approved_by', 'created_at',
+            'updated_at', 'published_at', 'is_owner'
+        ]
+        read_only_fields = [
+            'views', 'likes', 'dislikes', 'uploaded_by', 'approved_by',
+            'created_at', 'updated_at', 'published_at', 'is_owner'
+        ]
+    
+    def get_video_url(self, obj):
+        request = self.context.get('request')
+        if obj.video_file and hasattr(obj.video_file, 'url'):
+            if request:
+                return request.build_absolute_uri(obj.video_file.url)
+            return obj.video_file.url
+        return None
+    
+    def get_thumbnail_url(self, obj):
+        request = self.context.get('request')
+        if obj.thumbnail and hasattr(obj.thumbnail, 'url'):
+            if request:
+                return request.build_absolute_uri(obj.thumbnail.url)
+            return obj.thumbnail.url
+        return None
+    
+    def get_formatted_duration(self, obj):
+        return obj.format_duration()
+    
+    def get_formatted_file_size(self, obj):
+        return obj.format_file_size()
+    
+    def get_is_owner(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return obj.uploaded_by == request.user
+        return False
+
+class VideoUploadSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Video
+        fields = ['title', 'description', 'video_file', 'thumbnail', 'category']
+    
+    def validate_video_file(self, value):
+        # Validate file size (max 500MB)
+        max_size = 500 * 1024 * 1024  # 500MB in bytes
+        if value.size > max_size:
+            raise serializers.ValidationError(f'File size cannot exceed 500MB. Your file is {value.size / (1024*1024):.2f}MB')
+        
+        # Validate file extension
+        ext = os.path.splitext(value.name)[1].lower()
+        valid_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.webm']
+        if ext not in valid_extensions:
+            raise serializers.ValidationError(f'Unsupported file extension. Supported: {", ".join(valid_extensions)}')
+        
+        return value

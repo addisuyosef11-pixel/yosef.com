@@ -79,36 +79,346 @@ class UserAdmin(BaseUserAdmin):
 # PROFILE ADMIN
 # =======================
 
+
+
+
+
+from django.contrib import admin
+from django.urls import path, reverse
+from django.utils.html import format_html
+from django.shortcuts import render, redirect
+from django.http import HttpResponseRedirect
+from django.contrib import messages
+from django.db.models import Sum
+from datetime import datetime
+from .models import Profile, Transaction, RechargeRequest, Balance
+
+
 @admin.register(Profile)
 class ProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'phone', 'vip_level', 'balance', 
-                   'available_balance', 'points', 'inviter_link')
-    list_filter = ('vip_level',)
-    search_fields = ('user__username', 'phone', 'invite_code')
-    readonly_fields = ('invite_code', 'balance', 'available_balance', 'user_link')
+    list_display = ('user', 'phone', 'vip_level', 'balance_display', 
+                   'available_balance_display', 'points', 'inviter_link',
+                   'account_number', 'merchant_name', 'bank_type', 'get_recharge_action')
+    list_filter = ('vip_level', 'bank_type')
+    search_fields = ('user__username', 'phone', 'invite_code', 'account_number', 'merchant_name')
+    readonly_fields = ('invite_code', 'balance', 'available_balance', 'user_link', 
+                      'total_invested', 'total_withdrawn', 'total_earned', 'get_recharge_link')
+    
     fieldsets = (
         ('User Information', {
             'fields': ('user_link', 'phone', 'address', 'avatar')
         }),
+        ('Bank Account Details', {
+            'fields': ('account_number', 'merchant_name', 'bank_type', 'withdraw_password')
+        }),
         ('Financial Information', {
-            'fields': ('balance', 'available_balance', 'points', 'account_number')
+            'fields': ('balance', 'available_balance', 'points', 
+                      'total_invested', 'total_withdrawn', 'total_earned')
         }),
         ('VIP & Referral', {
             'fields': ('vip_level', 'inviter_link', 'invite_code')
         }),
+        ('Admin Actions', {
+            'fields': ('get_recharge_link',),
+            'classes': ('collapse',),
+        }),
     )
     
+    actions = ['manual_recharge_selected', 'reset_withdraw_password', 'export_bank_details']
+    
+    def balance_display(self, obj):
+        return f"₹{obj.balance:,.2f}"
+    balance_display.short_description = 'Balance'
+    
+    def available_balance_display(self, obj):
+        return f"₹{obj.available_balance:,.2f}"
+    available_balance_display.short_description = 'Available Balance'
+    
     def user_link(self, obj):
-        url = reverse('admin:cat_user_change', args=[obj.user.id])
+        url = reverse('admin:auth_user_change', args=[obj.user.id])
         return format_html('<a href="{}">{}</a>', url, obj.user.username)
     user_link.short_description = 'User'
     
     def inviter_link(self, obj):
         if obj.inviter:
-            url = reverse('admin:cat_user_change', args=[obj.inviter.id])
+            url = reverse('admin:auth_user_change', args=[obj.inviter.id])
             return format_html('<a href="{}">{}</a>', url, obj.inviter.username)
         return "None"
     inviter_link.short_description = 'Inviter'
+    
+    def get_recharge_action(self, obj):
+        return format_html(
+            '<a class="button" href="recharge/{}/">Recharge</a>',
+            obj.id
+        )
+    get_recharge_action.short_description = 'Action'
+    
+    def get_recharge_link(self, obj):
+        return format_html(
+            '<a class="button" href="/admin/custom_admin/manual-recharge/{}/" style="background-color: #4CAF50; color: white; padding: 8px 16px; text-decoration: none; border-radius: 4px;">💰 Manual Recharge</a>',
+            obj.user.id
+        )
+    get_recharge_link.short_description = 'Quick Recharge'
+    
+    # Custom admin views for recharge
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path('recharge/<int:profile_id>/', self.admin_site.admin_view(self.recharge_view),
+                 name='profile-recharge'),
+            path('manual-recharge/<int:user_id>/', self.admin_site.admin_view(self.manual_recharge_view),
+                 name='manual-recharge'),
+        ]
+        return custom_urls + urls
+    
+    def recharge_view(self, request, profile_id):
+        try:
+            profile = Profile.objects.get(id=profile_id)
+            
+            if request.method == 'POST':
+                amount = request.POST.get('amount')
+                description = request.POST.get('description', 'Admin manual recharge')
+                
+                if amount:
+                    try:
+                        amount = float(amount)
+                        if amount <= 0:
+                            messages.error(request, 'Amount must be positive')
+                        else:
+                            # Perform recharge
+                            old_balance = profile.balance
+                            profile.balance += amount
+                            profile.available_balance += amount
+                            profile.total_earned += amount
+                            profile.save()
+                            
+                            # Create transaction record
+                            Transaction.objects.create(
+                                user=profile.user,
+                                amount=amount,
+                                transaction_type='admin_recharge',
+                                status='completed',
+                                description=description,
+                                balance_after=profile.balance
+                            )
+                            
+                            # Create recharge request for audit
+                            RechargeRequest.objects.create(
+                                user=profile.user,
+                                amount=amount,
+                                admin_user=request.user,
+                                status='approved',
+                                notes=description
+                            )
+                            
+                            # Create balance history
+                            Balance.objects.create(
+                                user=profile.user,
+                                old_balance=old_balance,
+                                new_balance=profile.balance,
+                                change_amount=amount,
+                                change_type='admin_recharge',
+                                description=description,
+                                admin_user=request.user.username
+                            )
+                            
+                            messages.success(request, f'Successfully recharged ₹{amount:,.2f} to {profile.user.username}')
+                            return redirect('admin:cat_profile_changelist')
+                            
+                    except ValueError:
+                        messages.error(request, 'Invalid amount format')
+            
+            return render(request, 'admin/profile_recharge.html', {
+                'profile': profile,
+                'title': f'Recharge {profile.user.username}'
+            })
+            
+        except Profile.DoesNotExist:
+            messages.error(request, 'Profile not found')
+            return redirect('admin:cat_profile_changelist')
+    
+    def manual_recharge_view(self, request, user_id):
+        from django.contrib.auth.models import User
+        try:
+            user = User.objects.get(id=user_id)
+            profile = user.profile
+            
+            if request.method == 'POST':
+                amount = request.POST.get('amount')
+                description = request.POST.get('description', 'Manual recharge by admin')
+                
+                if amount:
+                    try:
+                        amount = float(amount)
+                        old_balance = profile.balance
+                        old_available = profile.available_balance
+                        
+                        profile.balance += amount
+                        profile.available_balance += amount
+                        profile.total_earned += amount
+                        profile.save()
+                        
+                        # Create transaction record
+                        Transaction.objects.create(
+                            user=user,
+                            amount=amount,
+                            transaction_type='admin_recharge',
+                            status='completed',
+                            description=description,
+                            balance_after=profile.balance
+                        )
+                        
+                        # Create recharge request
+                        RechargeRequest.objects.create(
+                            user=user,
+                            amount=amount,
+                            admin_user=request.user,
+                            status='approved',
+                            notes=description
+                        )
+                        
+                        # Create balance history
+                        Balance.objects.create(
+                            user=user,
+                            old_balance=old_balance,
+                            new_balance=profile.balance,
+                            change_amount=amount,
+                            change_type='admin_recharge',
+                            description=f"Admin recharge: {description}",
+                            admin_user=request.user.username
+                        )
+                        
+                        messages.success(request, f'✅ Successfully recharged ₹{amount:,.2f} to {user.username}')
+                        return redirect(f'/admin/cat/profile/{profile.id}/change/')
+                        
+                    except ValueError:
+                        messages.error(request, '❌ Invalid amount format')
+            
+            return render(request, 'admin/manual_recharge.html', {
+                'user': user,
+                'profile': profile,
+                'title': f'Manual Recharge - {user.username}'
+            })
+            
+        except User.DoesNotExist:
+            messages.error(request, '❌ User not found')
+            return redirect('/admin/')
+        except Profile.DoesNotExist:
+            messages.error(request, '❌ Profile not found')
+            return redirect('/admin/')
+    
+    # Admin actions
+    def manual_recharge_selected(self, request, queryset):
+        if 'apply' in request.POST:
+            amount = request.POST.get('amount')
+            description = request.POST.get('description', 'Bulk recharge by admin')
+            
+            if not amount:
+                self.message_user(request, 'Please enter an amount', level=messages.ERROR)
+                return redirect('..')
+            
+            try:
+                amount = float(amount)
+                if amount <= 0:
+                    self.message_user(request, 'Amount must be positive', level=messages.ERROR)
+                    return redirect('..')
+                    
+                success_count = 0
+                for profile in queryset:
+                    try:
+                        old_balance = profile.balance
+                        old_available = profile.available_balance
+                        
+                        profile.balance += amount
+                        profile.available_balance += amount
+                        profile.total_earned += amount
+                        profile.save()
+                        
+                        # Create records
+                        Transaction.objects.create(
+                            user=profile.user,
+                            amount=amount,
+                            transaction_type='admin_recharge',
+                            status='completed',
+                            description=description,
+                            balance_after=profile.balance
+                        )
+                        
+                        RechargeRequest.objects.create(
+                            user=profile.user,
+                            amount=amount,
+                            admin_user=request.user,
+                            status='approved',
+                            notes=description
+                        )
+                        
+                        BalanceHistory.objects.create(
+                            user=profile.user,
+                            old_balance=old_balance,
+                            new_balance=profile.balance,
+                            change_amount=amount,
+                            change_type='admin_recharge',
+                            description=f"Bulk recharge: {description}",
+                            admin_user=request.user.username
+                        )
+                        
+                        success_count += 1
+                        
+                    except Exception as e:
+                        self.message_user(request, f'Error recharging {profile.user.username}: {str(e)}', level=messages.WARNING)
+                
+                self.message_user(request, 
+                    f'✅ Successfully recharged {success_count}/{queryset.count()} profile(s) with ₹{amount:,.2f} each', 
+                    level=messages.SUCCESS
+                )
+                return redirect('..')
+                
+            except ValueError:
+                self.message_user(request, '❌ Invalid amount format', level=messages.ERROR)
+                return redirect('..')
+                
+        return render(request, 'admin/bulk_recharge.html', {
+            'profiles': queryset,
+            'total_profiles': queryset.count(),
+            'opts': self.model._meta,
+        })
+    
+    manual_recharge_selected.short_description = "💰 Manual recharge selected"
+    
+    def reset_withdraw_password(self, request, queryset):
+        for profile in queryset:
+            profile.withdraw_password = None  # Reset to null
+            profile.save()
+        self.message_user(request, f'✅ Withdraw password reset for {queryset.count()} profile(s)', level=messages.SUCCESS)
+    
+    reset_withdraw_password.short_description = "🔒 Reset withdraw password"
+    
+    def export_bank_details(self, request, queryset):
+        import csv
+        from django.http import HttpResponse
+        
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="bank_details_export.csv"'
+        
+        writer = csv.writer(response)
+        writer.writerow(['Username', 'Email', 'Phone', 'Merchant Name', 'Bank Type', 
+                        'Account Number', 'Balance', 'Available Balance'])
+        
+        for profile in queryset:
+            writer.writerow([
+                profile.user.username,
+                profile.user.email,
+                profile.phone or '',
+                profile.merchant_name or '',
+                profile.bank_type or '',
+                profile.account_number or '',
+                f"₹{profile.balance:,.2f}",
+                f"₹{profile.available_balance:,.2f}"
+            ])
+        
+        return response
+    
+    export_bank_details.short_description = "📄 Export bank details to CSV"
 
 
 # =======================
@@ -305,60 +615,134 @@ class VIPAdmin(admin.ModelAdmin):
     total_earning_display.short_description = 'Total Earning'
 
 
-# =======================
-# USER VIP ADMIN
-# =======================
-
 @admin.register(UserVIP)
 class UserVIPAdmin(admin.ModelAdmin):
-    list_display = ('user', 'vip', 'invested', 'last_claim_time', 'can_claim_display')
-    list_filter = ('vip', 'last_claim_time')
+    list_display = ('user', 'vip', 'invested', 'purchase_date', 'last_claim_time', 'can_claim_display', 'status_display')
+    list_filter = ('vip', 'last_claim_time', 'vip__income_days')
     search_fields = ('user__username', 'vip__title')
     
-    # Don't include can_claim_display in readonly_fields by default
-    readonly_fields = ('last_claim_time',)
+    # Fields to display in detail view
+    fieldsets = (
+        ('User Information', {
+            'fields': ('user', 'vip')
+        }),
+        ('Investment Details', {
+            'fields': ('invested', 'purchase_date', 'last_claim_time')
+        }),
+        ('Status', {
+            'fields': ('status_display', 'can_claim_display', 'remaining_days_display')
+        }),
+    )
     
-    def get_readonly_fields(self, request, obj=None):
-        # Only show can_claim_display when editing an existing object
-        if obj:  # obj exists (edit view)
-            return self.readonly_fields + ('can_claim_display',)
-        return self.readonly_fields  # add view
+    readonly_fields = ('status_display', 'can_claim_display', 'remaining_days_display')
+    
+    # Custom methods for list display
+    def status_display(self, obj):
+        if hasattr(obj, 'status'):
+            colors = {
+                'active': 'green',
+                'completed': 'blue',
+                'cancelled': 'red',
+            }
+            color = colors.get(obj.status, 'gray')
+            return format_html(
+                '<span style="color: white; background-color: {}; padding: 2px 6px; border-radius: 10px; font-size: 12px;">{}</span>',
+                color,
+                obj.status.upper()
+            )
+        return "Unknown"
+    status_display.short_description = 'Status'
     
     def can_claim_display(self, obj):
-        # Safe implementation with try-except
         try:
             if obj and hasattr(obj, 'can_claim'):
                 if obj.can_claim():
-                    return format_html('<span style="color: green; font-weight: bold;">READY</span>')
-                return format_html('<span style="color: red;">NOT READY</span>')
+                    return format_html('<span style="color: green; font-weight: bold;">✅ READY</span>')
+                
+                # Show countdown if not ready
+                if obj.last_claim_time:
+                    from django.utils import timezone
+                    from datetime import timedelta
+                    
+                    next_claim = obj.last_claim_time + timedelta(hours=24)
+                    now = timezone.now()
+                    
+                    if next_claim > now:
+                        time_remaining = next_claim - now
+                        hours = time_remaining.seconds // 3600
+                        minutes = (time_remaining.seconds % 3600) // 60
+                        return format_html(
+                            '<span style="color: orange;">⏳ {}h {}m</span>',
+                            hours,
+                            minutes
+                        )
+                
+                return format_html('<span style="color: red;">❌ NOT READY</span>')
         except Exception as e:
-            return format_html(f'<span style="color: orange;">Error: {str(e)[:50]}</span>')
+            # Handle error properly - don't use f-string in format_html
+            error_msg = str(e)[:50] if str(e) else "Unknown error"
+            return format_html('<span style="color: orange;">Error: {}</span>', error_msg)
+        
         return format_html('<span style="color: gray;">N/A</span>')
     
     can_claim_display.short_description = 'Claim Status'
-
-
-# =======================
-# INVESTMENT ADMIN
-# =======================
-
-
-@admin.register(Investment)
-class InvestmentAdmin(admin.ModelAdmin):
-    list_display = ('customer', 'invested_on', 'amount', 'daily_profit_rate', 
-                    'calculate_profit_display')
-    list_filter = ('invested_on',)
-    search_fields = ('customer__user__username',)
-    readonly_fields = ('invested_on', 'calculate_profit_display')
     
-    def calculate_profit_display(self, obj):
+    def remaining_days_display(self, obj):
         try:
-            profit = obj.calculate_profit()
-        except TypeError:
-            profit = 0  # fallback if amount or daily_profit_rate is None
-        return f"ETB {profit:,.2f}"
+            if obj and hasattr(obj, 'vip') and obj.vip:
+                if hasattr(obj.vip, 'income_days'):
+                    from django.utils import timezone
+                    
+                    if obj.vip.income_days <= 0:
+                        return "∞ (Infinite)"
+                    
+                    if hasattr(obj, 'purchase_date') and obj.purchase_date:
+                        days_since_purchase = (timezone.now() - obj.purchase_date).days
+                        remaining = obj.vip.income_days - days_since_purchase
+                        
+                        if remaining <= 0:
+                            return format_html('<span style="color: red; font-weight: bold;">0 (Expired)</span>')
+                        elif remaining <= 3:
+                            return format_html('<span style="color: orange;">{} days</span>', remaining)
+                        else:
+                            return f"{remaining} days"
+        except Exception:
+            pass
+        
+        return "N/A"
     
-    calculate_profit_display.short_description = 'Current Profit'
+    remaining_days_display.short_description = 'Remaining Days'
+    
+    # Custom actions
+    actions = ['reset_claim_timer', 'force_claim']
+    
+    def reset_claim_timer(self, request, queryset):
+        updated = queryset.update(last_claim_time=None)
+        self.message_user(request, f"{updated} claim timers reset.")
+    reset_claim_timer.short_description = "Reset claim timer"
+    
+    def force_claim(self, request, queryset):
+        successful = 0
+        failed = 0
+        
+        for user_vip in queryset:
+            try:
+                if hasattr(user_vip, 'claim_income'):
+                    result = user_vip.claim_income()
+                    if result:
+                        successful += 1
+                    else:
+                        failed += 1
+                else:
+                    failed += 1
+            except Exception:
+                failed += 1
+        
+        self.message_user(request, f"Force claim: {successful} successful, {failed} failed.")
+    force_claim.short_description = "Force claim income"
+
+
+
 
 
 # =======================
@@ -711,126 +1095,356 @@ class MainProjectAdmin(admin.ModelAdmin):
 
 
 
-
 from django.contrib import admin
+from django.utils import timezone
+from datetime import timedelta
 from django.utils.html import format_html
-from django.urls import reverse
-from .models import PaymentMethod
 
-@admin.register(PaymentMethod)
-class PaymentMethodAdmin(admin.ModelAdmin):
+@admin.register(UserMainProject)
+class UserMainProjectAdmin(admin.ModelAdmin):
+    """Admin interface for UserMainProject model"""
+    
+    # Display fields in list view
     list_display = [
-        'name',
-        'get_payment_type_display',
-        'account_number',
-        'get_status_display',
-        'is_active',
-        'priority',
-        'min_amount',
-        'max_amount',
-        'action_buttons',  # Fixed: renamed from 'actions'
+        'id',
+        'user',
+        'project_title',
+        'units',
+        'invested_amount',
+        'purchase_date',
+        'last_claim_time',
+        'status',  # ADDED: Must be in list_display if in list_editable
+        'status_badge',
+        'remaining_days_display',
+        'can_claim_display',
+        'is_active_display',
     ]
     
-    list_filter = ['payment_type', 'status', 'is_active', 'created_at']
-    search_fields = ['name', 'account_name', 'account_number', 'bank_name', 'phone_number']
-    list_editable = ['priority', 'is_active']
-    ordering = ['priority', '-created_at']
+    # Fields that can be searched
+    search_fields = [
+        'user__username',
+        'user__email',
+        'main_project__title',
+        'main_project__description',
+    ]
     
-    # CORRECT: actions is a list attribute
-    actions = ['activate_selected', 'deactivate_selected', 'export_to_csv']
+    # Filters for the sidebar
+    list_filter = [
+        'status',
+        'purchase_date',
+        'main_project',
+        'user',
+    ]
     
-    # CORRECT: Renamed method to avoid conflict with actions attribute
-    def action_buttons(self, obj):
-        # Use the correct URL pattern name
-        # Format: 'admin:{app_label}_{model_name}_change'
-        url = reverse('admin:cat_paymentmethod_change', args=[obj.id])
-        return format_html(
-            '<a href="{}" class="btn btn-sm btn-info">Edit</a>',
-            url
-        )
-    action_buttons.short_description = 'Actions'
+    # Fields that can be edited in the list view
+    list_editable = ['status']
     
-    # Custom admin actions
-    def activate_selected(self, request, queryset):
-        queryset.update(is_active=True, status='active')
-        self.message_user(request, f"Activated {queryset.count()} payment method(s).")
-    activate_selected.short_description = "Activate selected"
+    # Number of items per page
+    list_per_page = 25
     
-    def deactivate_selected(self, request, queryset):
-        queryset.update(is_active=False, status='inactive')
-        self.message_user(request, f"Deactivated {queryset.count()} payment method(s).")
-    deactivate_selected.short_description = "Deactivate selected"
+    # Date hierarchy for navigation
+    date_hierarchy = 'purchase_date'
     
-    def export_to_csv(self, request, queryset):
-        import csv
-        from django.http import HttpResponse
-        
-        response = HttpResponse(content_type='text/csv')
-        response['Content-Disposition'] = 'attachment; filename="payment_methods.csv"'
-        
-        writer = csv.writer(response)
-        writer.writerow([
-            'Name', 'Type', 'Account Name', 'Account Number',
-            'Bank', 'Phone', 'Min Amount', 'Max Amount',
-            'Status', 'Active', 'Priority', 'Processing Time'
-        ])
-        
-        for obj in queryset:
-            writer.writerow([
-                obj.name,
-                obj.get_payment_type_display(),
-                obj.account_name,
-                obj.account_number,
-                obj.bank_name or '',
-                obj.phone_number or '',
-                obj.min_amount,
-                obj.max_amount,
-                obj.get_status_display(),
-                'Yes' if obj.is_active else 'No',
-                obj.priority,
-                obj.processing_time
-            ])
-        
-        self.message_user(request, f"Exported {queryset.count()} payment methods to CSV")
-        return response
-    export_to_csv.short_description = "Export to CSV"
-    
-    # Form field configuration
+    # Fields to display in detail view
     fieldsets = (
-        ('Basic Information', {
+        ('User Information', {
+            'fields': ('user', 'profile_link')
+        }),
+        ('Project Information', {
+            'fields': ('main_project', 'project_details')
+        }),
+        ('Investment Details', {
             'fields': (
-                'name',
-                'payment_type',
-                'icon',
-                ('is_active', 'status'),
-                'priority',
+                'units',
+                'invested_amount',
+                'purchase_date',
+                'last_claim_time',
+                'status',
             )
         }),
-        ('Account Details', {
+        ('Calculated Fields', {
             'fields': (
-                'account_name',
-                'account_number',
-                'bank_name',
-                'branch',
-                'phone_number',
-            )
-        }),
-        ('Payment Configuration', {
-            'fields': (
-                ('min_amount', 'max_amount'),
-                'processing_time',
-                'instructions',
-            )
-        }),
-        ('QR Code', {
-            'fields': ('qr_code',),
-            'classes': ('collapse',),
+                'remaining_days',
+                'is_active',
+                'can_claim',
+                'next_claim_time',
+                'total_earned',
+            ),
+            'classes': ('collapse',)
         }),
     )
     
-    # Optional: Add help text
-    def get_form(self, request, obj=None, **kwargs):
-        form = super().get_form(request, obj, **kwargs)
-        form.base_fields['priority'].help_text = 'Higher number = displayed first'
-        form.base_fields['icon'].help_text = 'FontAwesome icon class (e.g., fa-bank, fa-mobile-alt, fa-wallet)'
-        return form
+    # Read-only fields
+    readonly_fields = [
+        'user',
+        'main_project',
+        'units',
+        'invested_amount',
+        'purchase_date',
+        'last_claim_time',
+        'remaining_days',
+        'is_active',
+        'can_claim',
+        'next_claim_time',
+        'total_earned',
+        'profile_link',
+        'project_details',
+    ]
+    
+    # Custom actions
+    actions = [
+        'mark_as_active',
+        'mark_as_completed',
+        'mark_as_cancelled',
+        'force_claim_income',
+        'reset_claim_timer',
+    ]
+    
+    # Custom methods for list display
+    def project_title(self, obj):
+        return obj.main_project.title
+    project_title.short_description = 'Project'
+    project_title.admin_order_field = 'main_project__title'
+    
+    def status_badge(self, obj):
+        colors = {
+            'active': 'green',
+            'completed': 'blue',
+            'cancelled': 'red',
+        }
+        color = colors.get(obj.status, 'gray')
+        return format_html(
+            '<span style="color: white; background-color: {}; padding: 3px 8px; border-radius: 12px; font-weight: bold;">{}</span>',
+            color,
+            obj.status.upper()
+        )
+    status_badge.short_description = 'Status Badge'
+    
+    def remaining_days_display(self, obj):
+        remaining = obj.remaining_days()
+        if remaining == float('inf'):
+            return '∞ (Infinite)'
+        elif remaining <= 0:
+            return format_html('<span style="color: red; font-weight: bold;">0 (Expired)</span>')
+        elif remaining <= 3:
+            return format_html('<span style="color: orange; font-weight: bold;">{} days</span>', remaining)
+        else:
+            return f"{remaining} days"
+    remaining_days_display.short_description = 'Remaining Days'
+    
+    def can_claim_display(self, obj):
+        if not obj.is_active():
+            return format_html('<span style="color: gray;">❌ Not Active</span>')
+        if obj.can_claim():
+            return format_html('<span style="color: green; font-weight: bold;">✅ Ready</span>')
+        
+        # Calculate time until next claim
+        next_claim = obj.last_claim_time + timedelta(hours=24)
+        hours_until = (next_claim - timezone.now()).seconds // 3600
+        minutes_until = ((next_claim - timezone.now()).seconds % 3600) // 60
+        
+        return format_html(
+            '<span style="color: orange;">⏳ {}h {}m</span>',
+            hours_until,
+            minutes_until
+        )
+    can_claim_display.short_description = 'Can Claim'
+    
+    def is_active_display(self, obj):
+        if obj.is_active():
+            return format_html('<span style="color: green; font-weight: bold;">✅ Active</span>')
+        return format_html('<span style="color: red;">❌ Inactive</span>')
+    is_active_display.short_description = 'Active'
+    
+    # Custom methods for detail view
+    def remaining_days(self, obj):
+        remaining = obj.remaining_days()
+        if remaining == float('inf'):
+            return 'Infinite (No cycle limit)'
+        return f"{remaining} days (out of {obj.main_project.cycle_days} total)"
+    remaining_days.short_description = 'Remaining Cycle Days'
+    
+    def is_active(self, obj):
+        return "Yes" if obj.is_active() else "No"
+    is_active.short_description = 'Is Investment Active?'
+    
+    def can_claim(self, obj):
+        if not obj.is_active():
+            return "No - Investment is not active"
+        if obj.can_claim():
+            return "Yes - Ready to claim"
+        
+        next_claim = obj.last_claim_time + timedelta(hours=24)
+        time_until = next_claim - timezone.now()
+        hours = time_until.seconds // 3600
+        minutes = (time_until.seconds % 3600) // 60
+        
+        return f"No - Next claim in {hours}h {minutes}m"
+    can_claim.short_description = 'Can Claim Now?'
+    
+    def next_claim_time(self, obj):
+        if obj.last_claim_time and obj.is_active():
+            next_claim = obj.last_claim_time + timedelta(hours=24)
+            return next_claim.strftime('%Y-%m-%d %H:%M:%S')
+        return "N/A"
+    next_claim_time.short_description = 'Next Claim Time'
+    
+    def total_earned(self, obj):
+        """Calculate total earned from this investment"""
+        if obj.last_claim_time:
+            # Estimate based on days since purchase and daily income
+            days_since_purchase = (timezone.now() - obj.purchase_date).days
+            daily_income = obj.main_project.daily_income * obj.units
+            max_days = min(days_since_purchase, obj.main_project.cycle_days) if obj.main_project.cycle_days > 0 else days_since_purchase
+            estimated = daily_income * max_days
+            return f"~{estimated:.2f}"
+        return "0.00"
+    total_earned.short_description = 'Estimated Total Earned'
+    
+    def profile_link(self, obj):
+        url = f"/admin/auth/user/{obj.user.id}/change/"
+        return format_html('<a href="{}" target="_blank">👤 View User Profile</a>', url)
+    profile_link.short_description = 'User Profile'
+    
+    def project_details(self, obj):
+        url = f"/admin/app_name/mainproject/{obj.main_project.id}/change/"
+        return format_html(
+            '<a href="{}" target="_blank">📊 View Project Details</a><br>'
+            '<strong>Daily Income:</strong> {}<br>'
+            '<strong>Cycle Days:</strong> {}<br>'
+            '<strong>Total Income:</strong> {}',
+            url,
+            obj.main_project.daily_income,
+            obj.main_project.cycle_days,
+            obj.main_project.daily_income * obj.main_project.cycle_days
+        )
+    project_details.short_description = 'Project Information'
+    
+    # Custom admin actions
+    def mark_as_active(self, request, queryset):
+        updated = queryset.update(status='active')
+        self.message_user(request, f"{updated} investments marked as active.")
+    mark_as_active.short_description = "Mark selected as Active"
+    
+    def mark_as_completed(self, request, queryset):
+        updated = queryset.update(status='completed')
+        self.message_user(request, f"{updated} investments marked as completed.")
+    mark_as_completed.short_description = "Mark selected as Completed"
+    
+    def mark_as_cancelled(self, request, queryset):
+        updated = queryset.update(status='cancelled')
+        self.message_user(request, f"{updated} investments marked as cancelled.")
+    mark_as_cancelled.short_description = "Mark selected as Cancelled"
+    
+    def force_claim_income(self, request, queryset):
+        successful = 0
+        failed = 0
+        
+        for investment in queryset:
+            if investment.is_active():
+                income = investment.claim_income()
+                if income:
+                    successful += 1
+                else:
+                    failed += 1
+            else:
+                failed += 1
+        
+        self.message_user(
+            request, 
+            f"Force claim completed: {successful} successful, {failed} failed."
+        )
+    force_claim_income.short_description = "Force claim income (24h bypass)"
+    
+    def reset_claim_timer(self, request, queryset):
+        updated = queryset.update(last_claim_time=None)
+        self.message_user(request, f"{updated} claim timers reset.")
+    reset_claim_timer.short_description = "Reset claim timer (make claimable)"
+    
+    # Customize the change form
+    def get_readonly_fields(self, request, obj=None):
+        if obj:  # Editing an existing object
+            return self.readonly_fields + ['user', 'main_project', 'units', 'invested_amount', 'purchase_date']
+        return self.readonly_fields
+    
+    # Add warning for status changes
+    def save_model(self, request, obj, form, change):
+        if change and 'status' in form.changed_data:
+            old_status = form.initial.get('status')
+            new_status = obj.status
+            
+            if old_status == 'completed' and new_status == 'active':
+                # Warn admin about reactivating completed investment
+                from django.contrib import messages
+                messages.warning(
+                    request,
+                    f"Investment reactivated from 'completed' to 'active'. "
+                    f"Check if cycle days ({obj.main_project.cycle_days}) have expired."
+                )
+        
+        super().save_model(request, obj, form, change)
+
+
+
+    # admin.py
+from django.contrib import admin
+from django.utils.html import format_html
+from .models import Video
+
+@admin.register(Video)
+class VideoAdmin(admin.ModelAdmin):
+    list_display = ['title', 'category', 'uploaded_by', 'views', 'status', 'is_featured', 'is_published', 'created_at']
+    list_filter = ['category', 'status', 'is_featured', 'is_published', 'created_at']
+    search_fields = ['title', 'description', 'uploaded_by__username']
+    readonly_fields = ['views', 'likes', 'dislikes', 'created_at', 'updated_at']
+    list_per_page = 20
+    actions = ['approve_videos', 'reject_videos', 'feature_videos', 'unfeature_videos']
+    
+    fieldsets = (
+        ('Video Information', {
+            'fields': ('title', 'description', 'category', 'duration', 'file_size')
+        }),
+        ('Media Files', {
+            'fields': ('video_file', 'thumbnail')
+        }),
+        ('Status & Visibility', {
+            'fields': ('status', 'is_featured', 'is_published')
+        }),
+        ('Statistics', {
+            'fields': ('views', 'likes', 'dislikes')
+        }),
+        ('User Information', {
+            'fields': ('uploaded_by', 'approved_by')
+        }),
+        ('Dates', {
+            'fields': ('created_at', 'updated_at', 'published_at')
+        }),
+    )
+    
+    def save_model(self, request, obj, form, change):
+        if not obj.uploaded_by_id:
+            obj.uploaded_by = request.user
+        if obj.status == 'approved' and not obj.approved_by_id:
+            obj.approved_by = request.user
+        super().save_model(request, obj, form, change)
+    
+    def approve_videos(self, request, queryset):
+        updated = queryset.update(status='approved', approved_by=request.user)
+        self.message_user(request, f'{updated} videos were approved.')
+    
+    def reject_videos(self, request, queryset):
+        updated = queryset.update(status='rejected')
+        self.message_user(request, f'{updated} videos were rejected.')
+    
+    def feature_videos(self, request, queryset):
+        updated = queryset.update(is_featured=True)
+        self.message_user(request, f'{updated} videos were marked as featured.')
+    
+    def unfeature_videos(self, request, queryset):
+        updated = queryset.update(is_featured=False)
+        self.message_user(request, f'{updated} videos were unfeatured.')
+    
+    approve_videos.short_description = "Approve selected videos"
+    reject_videos.short_description = "Reject selected videos"
+    feature_videos.short_description = "Mark as featured"
+    unfeature_videos.short_description = "Remove featured status"
