@@ -54,9 +54,10 @@ INSTALLED_APPS = [
     # Your apps
     'cat',
     'aviator',
-    'accounts',
+   
 ]
 
+AUTH_USER_MODEL = 'cat.User'
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',  # Add Whitenoise for static files
