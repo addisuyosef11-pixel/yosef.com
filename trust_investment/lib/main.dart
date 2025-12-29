@@ -73,7 +73,7 @@ class _MainNavigationState extends State<MainNavigation> {
       case 1:
         return OrderPage(token: widget.token); // FIXED: Removed vipData parameter
       case 2:
-        return NewsPage(token: widget.token);
+        return VideoNewsPage(token: widget.token);
       case 3:
         return SupportChatPage(
           token: widget.token,

@@ -502,28 +502,129 @@ def task_api(request):
 # CHAT
 # --------------------------
 
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def save_message_api(request):
-    content = request.data.get('content')
-    if not content:
-        return Response({'error': 'Message empty'}, status=status.HTTP_400_BAD_REQUEST)
-    msg = Message.objects.create(sender=request.user.username, content=content, timestamp=timezone.now())
-    serializer = MessageSerializer(msg)
-    return Response(serializer.data)
 
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def chat_api(request):
-    messages = Message.objects.filter(parent__isnull=True).prefetch_related('replies')
-    serializer = MessageSerializer(messages, many=True)
-    return Response(serializer.data)
 
 
 # --------------------------
 # ORDERS / INVEST
 # --------------------------
+
+
+
+
+
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def save_message_api(request):
+    try:
+        # Try to get content from request data (form data or JSON)
+        content = request.data.get('content')
+        
+        # If not found in data, try to parse body
+        if not content and request.body:
+            try:
+                body_data = json.loads(request.body)
+                content = body_data.get('content') or body_data.get('message') or body_data.get('text')
+            except:
+                pass
+        
+        if not content:
+            return Response({
+                'error': 'Message content is required',
+                'received_data': str(request.data)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get sender from authenticated user
+        sender = request.user.username
+        
+        # Create message
+        msg = Message.objects.create(
+            sender=sender, 
+            content=content, 
+            timestamp=timezone.now()
+        )
+        
+        # Return the created message
+        serializer = MessageSerializer(msg)
+        return Response({
+            'success': True,
+            'message': 'Message sent successfully',
+            'message_id': msg.id,
+            'data': serializer.data
+        }, status=status.HTTP_201_CREATED)
+        
+    except Exception as e:
+        return Response({
+            'error': f'Error saving message: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def chat_api(request):
+    try:
+        # Get all messages (you might want to filter or paginate)
+        messages = Message.objects.all().order_by('timestamp')
+        
+        # If you want to get messages for the current user only:
+        # messages = Message.objects.filter(sender=request.user.username).order_by('timestamp')
+        
+        serializer = MessageSerializer(messages, many=True)
+        return Response({
+            'success': True,
+            'count': messages.count(),
+            'messages': serializer.data
+        })
+        
+    except Exception as e:
+        return Response({
+            'error': f'Error fetching messages: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# Add a view to delete messages if needed
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_message_api(request, message_id):
+    try:
+        # Find the message
+        message = Message.objects.get(id=message_id)
+        
+        # Check if the user owns the message (optional security)
+        # if message.sender != request.user.username:
+        #     return Response({
+        #         'error': 'You can only delete your own messages'
+        #     }, status=status.HTTP_403_FORBIDDEN)
+        
+        message.delete()
+        return Response({
+            'success': True,
+            'message': 'Message deleted successfully'
+        })
+        
+    except Message.DoesNotExist:
+        return Response({
+            'error': 'Message not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({
+            'error': f'Error deleting message: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+
+
+
+
+
+
+
+
+
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -628,153 +729,149 @@ def set_withdraw_password_api(request):
     except AttributeError:
         return Response({'error': "'User' object has no attribute 'profile'"}, status=500)
 
+# 
 
 
 
 
-from datetime import timedelta
+
+
+
+# cat/api_views.py
 from django.utils import timezone
+from datetime import timedelta
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework import status
-from .models import UserVIP, Transaction,InviteReward
+from cat.models import UserVIP, Profile, Transaction
 
+# Function for URL WITHOUT vip_id parameter (gets it from request body)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def claim_vip_income_api(request):
-    user = request.user
-    try:
-        user_vip = UserVIP.objects.select_related('vip').get(user=user)
-    except UserVIP.DoesNotExist:
-        return Response({'error': 'No active VIP found.'}, status=status.HTTP_404_NOT_FOUND)
-
-    # Check if user can claim
-    if user_vip.last_claim_time and timezone.now() < user_vip.last_claim_time + timedelta(hours=24):
-        remaining = (user_vip.last_claim_time + timedelta(hours=24)) - timezone.now()
-        hours = remaining.seconds // 3600
-        minutes = (remaining.seconds % 3600) // 60
-        return Response(
-            {'error': f'You can claim again in {hours}h {minutes}m'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    # Add daily earning to balance
-    daily_earning = user_vip.vip.dailyEarnings  # from your VIP model
-    Transaction.objects.create(
-        customer=user,
-        type='deposit',
-        amount=daily_earning,
-        description=f'Daily income from {user_vip.vip.name}'
-    )
-
-    # Update last claim time
-    user_vip.last_claim_time = timezone.now()
-    user_vip.save()
-
-    return Response({'message': f'Successfully claimed Br {daily_earning} income.'})
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def recharge_api(request):
-    try:
-        # 1️⃣ Validate amount
-        amount = request.data.get("amount")
-        if not amount:
-            return Response({"error": "amount is required"}, status=400)
-
-        user = request.user
-
-        # 2️⃣ Check profile exists
-        try:
-            profile = user.profile
-        except Exception as e:
-            return Response({"error": f"profile missing: {str(e)}"}, status=500)
-
-        # 3️⃣ Create recharge
-        try:
-            recharge = Recharge.objects.create(
-                user=user,
-                amount=amount,
-                status="success"
-            )
-        except Exception as e:
-            return Response({"error": f"recharge create failed: {str(e)}"}, status=500)
-
-        # 4️⃣ Check inviter exists
-        inviter = profile.invited_by
-        if not inviter:
-            return Response({
-                "success": True,
-                "message": "Recharge successful (no inviter)"
-            })
-
-        # 5️⃣ Check if reward already exists
-        try:
-            if InviteReward.objects.filter(invited_user=user).exists():
-                return Response({
-                    "success": True,
-                    "message": "Recharge successful (reward already given)"
-                })
-        except Exception as e:
-            return Response({"error": f"reward check failed: {str(e)}"}, status=500)
-
-        # 6️⃣ Create reward
-        reward_amount = 12.5
-        try:
-            InviteReward.objects.create(
-                profile=inviter,
-                invited_user=user,
-                reward_amount=reward_amount
-            )
-        except Exception as e:
-            return Response({"error": f"reward creation failed: {str(e)}"}, status=500)
-
-        # 7️⃣ Update inviter balance
-        try:
-            inviter.balance += reward_amount
-            inviter.save()
-        except Exception as e:
-            return Response({"error": f"balance update failed: {str(e)}"}, status=500)
-
+def claim_vip_income(request):
+    """Claim income from a VIP investment - vip_id from request body"""
+    
+    # Get vip_id from request body (JSON)
+    vip_id = request.data.get('vip_id')
+    
+    if not vip_id:
         return Response({
-            "success": True,
-            "message": "Recharge successful (reward given)",
-            "reward_amount": reward_amount
+            'success': False,
+            'message': 'vip_id is required in request body',
+        }, status=400)
+    
+    try:
+        vip_id = int(vip_id)
+        user_vip = UserVIP.objects.get(user=request.user, vip_id=vip_id)
+        
+        if not user_vip.can_claim():
+            return Response({
+                'success': False,
+                'message': 'You can only claim once every 24 hours',
+                'next_claim_time': (user_vip.last_claim_time + timedelta(hours=24)).isoformat() if user_vip.last_claim_time else None,
+            }, status=400)
+        
+        # Calculate daily income
+        daily_income = user_vip.vip.daily_income
+        
+        # Update user balance
+        profile = Profile.objects.get(user=request.user)
+        profile.balance += daily_income
+        profile.available_balance += daily_income
+        profile.save()
+        
+        # Update last claim time
+        user_vip.last_claim_time = timezone.now()
+        user_vip.save()
+        
+        # Record transaction
+        Transaction.objects.create(
+            customer=request.user,
+            type='profit',
+            amount=daily_income,
+            status='success',
+        )
+        
+        return Response({
+            'success': True,
+            'message': f'Successfully claimed {daily_income} Br',
+            'amount': float(daily_income),
+            'balance': float(profile.balance),
+            'next_claim_time': (user_vip.last_claim_time + timedelta(hours=24)).isoformat(),
         })
-
+        
+    except UserVIP.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': 'VIP investment not found',
+        }, status=404)
+    except ValueError:
+        return Response({
+            'success': False,
+            'message': 'vip_id must be a valid integer',
+        }, status=400)
     except Exception as e:
-        return Response({"error": f"unexpected error: {str(e)}"}, status=500)
+        return Response({
+            'success': False,
+            'message': f'Error claiming income: {str(e)}',
+        }, status=500)
 
 
-
-
-
-
-
-
+# Function for URL WITH vip_id parameter (gets it from URL)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def claim_vip_income_api(request, vip_id):
+    """Claim income from a VIP investment - vip_id from URL"""
+    
+    try:
+        user_vip = UserVIP.objects.get(user=request.user, vip_id=vip_id)
+        
+        if not user_vip.can_claim():
+            return Response({
+                'success': False,
+                'message': 'You can only claim once every 24 hours',
+                'next_claim_time': (user_vip.last_claim_time + timedelta(hours=24)).isoformat() if user_vip.last_claim_time else None,
+            }, status=400)
+        
+        # Calculate daily income
+        daily_income = user_vip.vip.daily_income
+        
+        # Update user balance
+        profile = Profile.objects.get(user=request.user)
+        profile.balance += daily_income
+        profile.available_balance += daily_income
+        profile.save()
+        
+        # Update last claim time
+        user_vip.last_claim_time = timezone.now()
+        user_vip.save()
+        
+        # Record transaction
+        Transaction.objects.create(
+            customer=request.user,
+            type='profit',
+            amount=daily_income,
+            status='success',
+        )
+        
+        return Response({
+            'success': True,
+            'message': f'Successfully claimed {daily_income} Br',
+            'amount': float(daily_income),
+            'balance': float(profile.balance),
+            'next_claim_time': (user_vip.last_claim_time + timedelta(hours=24)).isoformat(),
+        })
+        
+    except UserVIP.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': 'VIP investment not found',
+        }, status=404)
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Error claiming income: {str(e)}',
+        }, status=500)
 
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -1071,6 +1168,11 @@ def get_project_detail(request, slug):
             'message': f'Error fetching project: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+
+from .models import MainProject ,UserMainProject
+
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def invest_in_project(request):
@@ -1079,18 +1181,30 @@ def invest_in_project(request):
     """
     try:
         # Parse request data
-        try:
-            data = json.loads(request.body)
-        except json.JSONDecodeError:
-            data = request.data
-            
+        data = request.data
+        
         project_id = data.get('project_id')
         units = data.get('units', 1)
         
+        # Validate inputs
         if not project_id:
             return Response({
                 'success': False,
                 'message': 'project_id is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            units = int(units)
+        except (ValueError, TypeError):
+            return Response({
+                'success': False,
+                'message': 'Units must be a valid number'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if units < 1:
+            return Response({
+                'success': False,
+                'message': 'Units must be at least 1'
             }, status=status.HTTP_400_BAD_REQUEST)
         
         # Get project
@@ -1106,13 +1220,7 @@ def invest_in_project(request):
                 'message': 'Project not found or not available for investment'
             }, status=status.HTTP_404_NOT_FOUND)
         
-        # Validate units
-        if units < 1:
-            return Response({
-                'success': False,
-                'message': 'Units must be at least 1'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
+        # Check available units
         if units > project.available_units:
             return Response({
                 'success': False,
@@ -1120,26 +1228,55 @@ def invest_in_project(request):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         # Calculate total amount
-        total_amount = project.price * units
-        
-        # Check user balance (adjust based on your UserProfile model)
-        user_profile = request.user.profile
-        
-        if not hasattr(user_profile, 'balance'):
+        try:
+            total_amount = project.price * Decimal(units)
+        except Exception as e:
             return Response({
                 'success': False,
-                'message': 'User profile error: balance field not found'
+                'message': f'Error calculating amount: {str(e)}'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        if user_profile.balance < total_amount:
+        # Check user profile and balance
+        try:
+            user_profile = request.user.profile
+        except AttributeError:
             return Response({
                 'success': False,
-                'message': f'Insufficient balance. Required: {total_amount} Br, Available: {user_profile.balance} Br'
+                'message': 'User profile not found'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if user already invested in this project
+        existing_investment = UserMainProject.objects.filter(
+            user=request.user,
+            main_project=project
+        ).first()
+        
+        if existing_investment:
+            return Response({
+                'success': False,
+                'message': f'You already have an investment in this project. You own {existing_investment.units} units.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check user balance
+        if not hasattr(user_profile, 'balance') or user_profile.balance is None:
+            return Response({
+                'success': False,
+                'message': 'User balance not found'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if Decimal(str(user_profile.balance)) < total_amount:
+            return Response({
+                'success': False,
+                'message': f'Insufficient balance. Required: {total_amount:.2f} Br, Available: {user_profile.balance:.2f} Br'
             }, status=status.HTTP_400_BAD_REQUEST)
         
         # Process investment
         try:
             with transaction.atomic():
+                # Calculate incomes
+                daily_income = project.daily_income * Decimal(units)
+                total_income = project.total_income * Decimal(units)
+                
                 # Deduct from user balance
                 user_profile.balance -= total_amount
                 user_profile.save()
@@ -1148,33 +1285,47 @@ def invest_in_project(request):
                 project.available_units -= units
                 project.save()
                 
-                # Create investment record
-                investment = User.objects.create(
+                # Create UserMainProject record
+                user_main_project = UserMainProject.objects.create(
                     user=request.user,
-                    project=project,
+                    main_project=project,
                     units=units,
-                    total_amount=total_amount,
-                    daily_income=project.daily_income * units,
-                    total_income=project.total_income * units,
-                    cycle_days=project.cycle_days,
-                    status='active',
-                    start_date=timezone.now(),
-                    end_date=timezone.now() + timezone.timedelta(days=project.cycle_days)
+                    invested_amount=total_amount,
+                    status='active'
                 )
+                
+                # Refresh the instance to get auto-added fields
+                user_main_project.refresh_from_db()
+                
+                # Test the can_claim method to ensure no errors
+                try:
+                    can_claim = user_main_project.can_claim()
+                    print(f"DEBUG: can_claim() result: {can_claim}")
+                except Exception as method_error:
+                    print(f"DEBUG: Error in can_claim(): {str(method_error)}")
+                
+                # Format dates safely
+                purchase_date_str = None
+                if user_main_project.purchase_date:
+                    purchase_date_str = user_main_project.purchase_date.isoformat()
+                
+                last_claim_time_str = None
+                if user_main_project.last_claim_time:
+                    last_claim_time_str = user_main_project.last_claim_time.isoformat()
                 
                 # Prepare response data
                 response_data = {
                     'success': True,
                     'message': f'Successfully invested in {project.title}',
-                    'investment_id': investment.id,
+                    'investment_id': user_main_project.id,
                     'project_title': project.title,
                     'units': units,
                     'total_amount': float(total_amount),
-                    'daily_income': float(investment.daily_income),
-                    'total_income': float(investment.total_income),
-                    'cycle_days': investment.cycle_days,
-                    'start_date': investment.start_date,
-                    'end_date': investment.end_date,
+                    'daily_income': float(daily_income),
+                    'total_income': float(total_income),
+                    'cycle_days': project.cycle_days,
+                    'purchase_date': purchase_date_str,
+                    'last_claim_time': last_claim_time_str,
                     'remaining_units': project.available_units,
                     'new_balance': float(user_profile.balance)
                 }
@@ -1182,16 +1333,46 @@ def invest_in_project(request):
                 return Response(response_data, status=status.HTTP_201_CREATED)
                 
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"Transaction error details:\n{error_details}")
+            
             return Response({
                 'success': False,
                 'message': f'Transaction failed: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"General error details:\n{error_details}")
+        
         return Response({
             'success': False,
             'message': f'Investment error: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -1317,9 +1498,26 @@ def get_user_investments(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def claim_vip_income(request, vip_id):
+def claim_vip_income(request):
     """Claim income from a VIP investment"""
     try:
+        # Get vip_id from request data
+        vip_id = request.data.get('vip_id')
+        
+        # If request.data is empty, try to parse body directly
+        if vip_id is None and request.body:
+            try:
+                data = json.loads(request.body)
+                vip_id = data.get('vip_id')
+            except:
+                pass
+        
+        if not vip_id:
+            return Response({
+                'success': False,
+                'message': 'VIP ID is required. Please provide vip_id in the request body.',
+            }, status=400)
+        
         user_vip = UserVIP.objects.get(user=request.user, vip_id=vip_id)
         
         if not user_vip.can_claim():
@@ -1371,9 +1569,26 @@ def claim_vip_income(request, vip_id):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def claim_main_project_income(request, project_id):
+def claim_main_project_income(request):
     """Claim income from a Main Project investment"""
     try:
+        # Get project_id from request data
+        project_id = request.data.get('project_id')
+        
+        # If request.data is empty, try to parse body directly
+        if project_id is None and request.body:
+            try:
+                data = json.loads(request.body)
+                project_id = data.get('project_id')
+            except:
+                pass
+        
+        if not project_id:
+            return Response({
+                'success': False,
+                'message': 'Project ID is required. Please provide project_id in the request body.',
+            }, status=400)
+        
         # This requires the UserMainProject model
         from .models import UserMainProject
         user_project = UserMainProject.objects.get(user=request.user, main_project_id=project_id)
@@ -1440,160 +1655,526 @@ def claim_main_project_income(request, project_id):
             'success': False,
             'message': f'Error claiming income: {str(e)}',
         }, status=500)
-    
 
 
 
 
-
-
-
-
-
-# views.py or api/views.py
-from rest_framework import viewsets, status, generics, filters
-from rest_framework.decorators import action
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import (
+    IsAuthenticated,
+    IsAdminUser,
+    AllowAny
+)
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
+from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser
-from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q
+from django.views.decorators.csrf import csrf_exempt
+
 from .models import Video
 from .serializers import VideoSerializer, VideoUploadSerializer
-from django.utils import timezone
-import os
 
-class VideoViewSet(viewsets.ModelViewSet):
-    queryset = Video.objects.filter(is_published=True, status='approved')
-    serializer_class = VideoSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['category', 'is_featured', 'uploaded_by']
-    search_fields = ['title', 'description']
-    ordering_fields = ['created_at', 'views', 'likes']
-    ordering = ['-created_at']
-    
-    def get_permissions(self):
-        """
-        Instantiates and returns the list of permissions that this view requires.
-        """
-        if self.action in ['create', 'update', 'partial_update', 'destroy', 'upload']:
-            permission_classes = [IsAdminUser]
-        elif self.action in ['list', 'retrieve']:
-            permission_classes = [AllowAny]
-        else:
-            permission_classes = [IsAuthenticated]
-        return [permission() for permission in permission_classes]
-    
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        
-        # For admin users, show all videos (including unpublished)
-        if self.request.user.is_staff:
-            queryset = Video.objects.all()
-        
-        # Filter by featured
-        featured = self.request.query_params.get('featured')
-        if featured == 'true':
-            queryset = queryset.filter(is_featured=True)
-        
-        # Filter by category
-        category = self.request.query_params.get('category')
-        if category:
-            queryset = queryset.filter(category=category)
-        
-        # Filter by search query
-        search = self.request.query_params.get('search')
-        if search:
-            queryset = queryset.filter(
-                Q(title__icontains=search) |
-                Q(description__icontains=search)
-            )
-        
-        return queryset
-    
-    @action(detail=True, methods=['post'])
-    def increment_views(self, request, pk=None):
-        video = self.get_object()
-        video.views += 1
-        video.save()
-        return Response({'message': 'View count incremented', 'views': video.views})
-    
-    @action(detail=True, methods=['post'])
-    def like(self, request, pk=None):
-        video = self.get_object()
-        video.likes += 1
-        video.save()
-        return Response({'message': 'Video liked', 'likes': video.likes})
-    
-    @action(detail=True, methods=['post'])
-    def dislike(self, request, pk=None):
-        video = self.get_object()
-        video.dislikes += 1
-        video.save()
-        return Response({'message': 'Video disliked', 'dislikes': video.dislikes})
-    
-    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
-    def upload(self, request):
-        serializer = VideoUploadSerializer(data=request.data, context={'request': request})
-        
-        if serializer.is_valid():
-            # Calculate duration and file size (you might need to implement this)
-            video_file = serializer.validated_data['video_file']
-            
-            # Create video instance
-            video = serializer.save(
-                uploaded_by=request.user,
-                duration=0,  # You'll need to calculate this
-                file_size=video_file.size,
-                status='approved' if request.user.is_staff else 'pending'
-            )
-            
-            # Return the created video
-            response_serializer = VideoSerializer(video, context={'request': request})
-            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
-        
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    @action(detail=False, methods=['get'])
-    def categories(self, request):
-        categories = Video.objects.values_list('category', flat=True).distinct()
-        return Response({'categories': list(categories)})
 
-class AdminVideoViewSet(viewsets.ModelViewSet):
-    """
-    Admin-only video management
-    """
-    queryset = Video.objects.all()
-    serializer_class = VideoSerializer
-    permission_classes = [IsAdminUser]
-    
-    @action(detail=True, methods=['post'])
-    def approve(self, request, pk=None):
-        video = self.get_object()
-        video.status = 'approved'
-        video.approved_by = request.user
-        video.is_published = True
-        video.save()
-        return Response({'message': 'Video approved'})
-    
-    @action(detail=True, methods=['post'])
-    def reject(self, request, pk=None):
-        video = self.get_object()
-        video.status = 'rejected'
-        video.is_published = False
-        video.save()
-        return Response({'message': 'Video rejected'})
-    
-    @action(detail=True, methods=['post'])
-    def feature(self, request, pk=None):
-        video = self.get_object()
-        video.is_featured = True
-        video.save()
-        return Response({'message': 'Video featured'})
-    
-    @action(detail=True, methods=['post'])
-    def unfeature(self, request, pk=None):
-        video = self.get_object()
-        video.is_featured = False
-        video.save()
-        return Response({'message': 'Video unfeatured'})
+# ==========================
+# PUBLIC VIDEO ENDPOINTS
+# ==========================
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def video_list(request):
+    queryset = Video.objects.filter(
+        is_published=True,
+        status='approved'
+    )
+
+    featured = request.query_params.get('featured')
+    category = request.query_params.get('category')
+    search = request.query_params.get('search')
+
+    if featured == 'true':
+        queryset = queryset.filter(is_featured=True)
+
+    if category:
+        queryset = queryset.filter(category=category)
+
+    if search:
+        queryset = queryset.filter(
+            Q(title__icontains=search) |
+            Q(description__icontains=search)
+        )
+
+    serializer = VideoSerializer(
+        queryset,
+        many=True,
+        context={'request': request}
+    )
+    return Response(serializer.data)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def video_detail(request, pk):
+    try:
+        video = Video.objects.get(
+            pk=pk,
+            is_published=True,
+            status='approved'
+        )
+    except Video.DoesNotExist:
+        return Response(
+            {'detail': 'Video not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    serializer = VideoSerializer(video, context={'request': request})
+    return Response(serializer.data)
+
+
+# ==========================
+# VIDEO INTERACTIONS
+# ==========================
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def increment_views(request, pk):
+    video = Video.objects.get(pk=pk)
+    video.views += 1
+    video.save()
+    return Response({'views': video.views})
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def like_video(request, pk):
+    video = Video.objects.get(pk=pk)
+    video.likes += 1
+    video.save()
+    return Response({'likes': video.likes})
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def dislike_video(request, pk):
+    video = Video.objects.get(pk=pk)
+    video.dislikes += 1
+    video.save()
+    return Response({'dislikes': video.dislikes})
+
+
+# ==========================
+# UPLOAD VIDEO
+# ==========================
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@csrf_exempt
+def upload_video(request):
+    parser_classes = (MultiPartParser, FormParser)
+
+    serializer = VideoUploadSerializer(
+        data=request.data,
+        context={'request': request}
+    )
+
+    if serializer.is_valid():
+        video_file = serializer.validated_data['video_file']
+
+        video = serializer.save(
+            uploaded_by=request.user,
+            duration=0,
+            file_size=video_file.size,
+            status='approved' if request.user.is_staff else 'pending',
+            is_published=request.user.is_staff
+        )
+
+        return Response(
+            VideoSerializer(video, context={'request': request}).data,
+            status=status.HTTP_201_CREATED
+        )
+
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# ==========================
+# ADMIN VIDEO ACTIONS
+# ==========================
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def approve_video(request, pk):
+    video = Video.objects.get(pk=pk)
+    video.status = 'approved'
+    video.is_published = True
+    video.approved_by = request.user
+    video.save()
+    return Response({'message': 'Video approved'})
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def reject_video(request, pk):
+    video = Video.objects.get(pk=pk)
+    video.status = 'rejected'
+    video.is_published = False
+    video.save()
+    return Response({'message': 'Video rejected'})
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def feature_video(request, pk):
+    video = Video.objects.get(pk=pk)
+    video.is_featured = True
+    video.save()
+    return Response({'message': 'Video featured'})
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def unfeature_video(request, pk):
+    video = Video.objects.get(pk=pk)
+    video.is_featured = False
+    video.save()
+    return Response({'message': 'Video unfeatured'})
+
+
+# ==========================
+# CATEGORIES
+# ==========================
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def video_categories(request):
+    categories = Video.objects.values_list(
+        'category',
+        flat=True
+    ).distinct()
+    return Response({'categories': list(categories)})
+
+
+
+
+
+
+
+
+
+
+
+
+# Add these imports at the top if not already there
+from django.db.models import Sum, Count, Q
+from decimal import Decimal
+import json
+
+# Add these views to your api_views.py file:
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_team_members(request):
+    """Get user's team members (direct referrals)"""
+    try:
+        user = request.user
+        user_profile = user.profile
+        
+        # Get all users directly referred by this user
+        direct_referrals = User.objects.filter(
+            profile__inviter=user
+        ).select_related('profile')
+        
+        team_members = []
+        for referral in direct_referrals:
+            # Get referral's profile
+            referral_profile = referral.profile
+            
+            # Calculate total investment for this referral
+            total_investment = UserMainProject.objects.filter(
+                user=referral,
+                status='active'
+            ).aggregate(
+                total=Sum('invested_amount')
+            )['total'] or Decimal('0')
+            
+            # Get user's VIP if any
+            vip_level = 'No VIP'
+            try:
+                user_vip = UserVIP.objects.get(user=referral)
+                vip_level = f"VIP {user_vip.vip.upgrade}"
+            except UserVIP.DoesNotExist:
+                pass
+            
+            # Calculate commission earned from this referral (if Commission model exists)
+            commission_earned = Decimal('0')
+            try:
+                from .models import Commission
+                commission_earned = Commission.objects.filter(
+                    user=user,
+                    related_user=referral
+                ).aggregate(
+                    total=Sum('amount')
+                )['total'] or Decimal('0')
+            except (ImportError, AttributeError):
+                pass
+            
+            team_members.append({
+                'id': referral.id,
+                'name': referral.get_full_name() or referral.username,
+                'username': referral.username,
+                'phone': referral_profile.phone or '',
+                'email': referral.email or '',
+                'level': vip_level,
+                'joined': referral.date_joined.strftime('%Y-%m-%d'),
+                'status': 'active' if referral.is_active else 'inactive',
+                'investment': float(total_investment),
+                'commission_earned': float(commission_earned),
+                'avatar': referral_profile.avatar.url if referral_profile.avatar else None,
+            })
+        
+        # Get team stats
+        total_members = direct_referrals.count()
+        active_members = direct_referrals.filter(is_active=True).count()
+        
+        total_investment = UserMainProject.objects.filter(
+            user__profile__inviter=user,
+            status='active'
+        ).aggregate(
+            total=Sum('invested_amount')
+        )['total'] or Decimal('0')
+        
+        # Calculate total commission earned
+        total_commission = Decimal('0')
+        try:
+            from .models import Commission
+            total_commission = Commission.objects.filter(
+                user=user
+            ).aggregate(
+                total=Sum('amount')
+            )['total'] or Decimal('0')
+        except (ImportError, AttributeError):
+            pass
+        
+        team_stats = {
+            'total_members': total_members,
+            'active_members': active_members,
+            'total_investment': float(total_investment),
+            'commission_earned': float(total_commission),
+            'invite_code': user_profile.invite_code,
+            'referral_link': f"https://yourapp.com/register?ref={user_profile.invite_code}",
+        }
+        
+        return Response({
+            'success': True,
+            'team_members': team_members,
+            'team_stats': team_stats,
+        })
+        
+    except Exception as e:
+        import traceback
+        print(f"Error in get_team_members: {str(e)}")
+        print(traceback.format_exc())
+        return Response({
+            'success': False,
+            'message': f'Error loading team data: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def send_invitation(request):
+    """Send invitation to potential team member"""
+    try:
+        data = request.data
+        phone = data.get('phone')
+        message = data.get('message', 'Join me on this amazing platform and start earning!')
+        
+        if not phone:
+            return Response({
+                'success': False,
+                'message': 'Phone number is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get user's invite code
+        invite_code = request.user.profile.invite_code
+        referral_link = f"https://yourapp.com/register?ref={invite_code}"
+        
+        # Full message with referral link
+        full_message = f"{message}\n\nUse my referral link to register: {referral_link}\n\nMy invite code: {invite_code}"
+        
+        # Log the invitation (in production, integrate with SMS service)
+        print(f"[INVITATION] To: {phone}")
+        print(f"[INVITATION] Message: {full_message}")
+        
+        # Create a record of the invitation (optional)
+        # You could create an Invitation model to track these
+        
+        return Response({
+            'success': True,
+            'message': 'Invitation sent successfully!',
+            'referral_link': referral_link,
+            'invite_code': invite_code,
+        })
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Error sending invitation: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_commission_history(request):
+    """Get user's commission history"""
+    try:
+        # Try to get commissions from Commission model
+        try:
+            from .models import Commission
+            commissions = Commission.objects.filter(
+                user=request.user
+            ).order_by('-created_at')[:50]
+            
+            commission_list = []
+            for commission in commissions:
+                commission_list.append({
+                    'id': commission.id,
+                    'amount': float(commission.amount),
+                    'level': getattr(commission, 'level', 1),
+                    'description': getattr(commission, 'description', f"Level {getattr(commission, 'level', 1)} Commission"),
+                    'date': commission.created_at.strftime('%Y-%m-%d %H:%M'),
+                    'from_user': getattr(commission.related_user, 'username', 'System') if hasattr(commission, 'related_user') else 'System',
+                })
+            
+            total_commission = sum(float(c.amount) for c in commissions)
+            
+        except (ImportError, AttributeError):
+            # If Commission model doesn't exist, return empty list
+            commission_list = []
+            total_commission = 0
+        
+        return Response({
+            'success': True,
+            'commissions': commission_list,
+            'total_commission': total_commission,
+            'commission_count': len(commission_list),
+        })
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Error loading commission history: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_team_stats(request):
+    """Get detailed team statistics"""
+    try:
+        user = request.user
+        
+        # Direct referrals (Level 1)
+        level1_referrals = User.objects.filter(profile__inviter=user)
+        
+        # Level 2 referrals (referrals of referrals)
+        level2_referrals = User.objects.filter(
+            profile__inviter__in=level1_referrals
+        )
+        
+        # Level 3 referrals
+        level3_referrals = User.objects.filter(
+            profile__inviter__in=level2_referrals
+        )
+        
+        # Calculate investments by level
+        def get_investment_for_users(users):
+            return UserMainProject.objects.filter(
+                user__in=users,
+                status='active'
+            ).aggregate(total=Sum('invested_amount'))['total'] or Decimal('0')
+        
+        level1_investment = get_investment_for_users(level1_referrals)
+        level2_investment = get_investment_for_users(level2_referrals)
+        level3_investment = get_investment_for_users(level3_referrals)
+        
+        # Calculate commissions by level (if Commission model exists)
+        def get_commission_for_level(level):
+            try:
+                from .models import Commission
+                return Commission.objects.filter(
+                    user=user,
+                    level=level
+                ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+            except (ImportError, AttributeError):
+                return Decimal('0')
+        
+        level1_commission = get_commission_for_level(1)
+        level2_commission = get_commission_for_level(2)
+        level3_commission = get_commission_for_level(3)
+        
+        stats = {
+            'level1': {
+                'members': level1_referrals.count(),
+                'investment': float(level1_investment),
+                'commission': float(level1_commission),
+            },
+            'level2': {
+                'members': level2_referrals.count(),
+                'investment': float(level2_investment),
+                'commission': float(level2_commission),
+            },
+            'level3': {
+                'members': level3_referrals.count(),
+                'investment': float(level3_investment),
+                'commission': float(level3_commission),
+            },
+            'total': {
+                'members': level1_referrals.count() + level2_referrals.count() + level3_referrals.count(),
+                'investment': float(level1_investment + level2_investment + level3_investment),
+                'commission': float(level1_commission + level2_commission + level3_commission),
+            }
+        }
+        
+        return Response({
+            'success': True,
+            'stats': stats,
+            'invite_code': user.profile.invite_code,
+        })
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Error loading team stats: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def share_referral_link(request):
+    """Generate shareable referral content"""
+    try:
+        user = request.user
+        user_profile = user.profile
+        
+        invite_code = user_profile.invite_code
+        referral_link = f"https://yourapp.com/register?ref={invite_code}"
+        
+        share_content = {
+            'text': f"Join me on this amazing platform! Use my referral code: {invite_code}\n{referral_link}",
+            'link': referral_link,
+            'code': invite_code,
+            'qr_code_url': f"https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={referral_link}",
+        }
+        
+        return Response({
+            'success': True,
+            'share_content': share_content,
+        })
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Error generating share content: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+
+
+
+

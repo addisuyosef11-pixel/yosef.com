@@ -627,18 +627,31 @@ class _HomePageState extends State<HomePage> {
       backgroundColor: const Color(0xFFF5F5F7),
       body: Stack(
         children: [
-          SingleChildScrollView(
-            child: Column(
-              children: [
-                _heroBanner(),
-                _balanceCard(),
-                _quickActions(),
-                _cashChallenge(),
-                _welfareProducts(),
-                _mainProject(),
-                const SizedBox(height: 20),
-              ],
-            ),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isDesktop = constraints.maxWidth > 768;
+              
+              return SingleChildScrollView(
+                child: Center(
+                  child: Container(
+                    constraints: BoxConstraints(
+                      maxWidth: isDesktop ? 800 : double.infinity,
+                    ),
+                    child: Column(
+                      children: [
+                        _heroBanner(isDesktop),
+                        _balanceCard(isDesktop),
+                        _quickActions(isDesktop),
+                        _cashChallenge(isDesktop),
+                        _welfareProducts(isDesktop),
+                        _mainProject(isDesktop),
+                        const SizedBox(height: 20),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
           _floatingChat(),
           
@@ -672,10 +685,15 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _heroBanner() {
+  Widget _heroBanner(bool isDesktop) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 50, 16, 30),
+      padding: EdgeInsets.fromLTRB(
+        isDesktop ? 40 : 16, 
+        50, 
+        isDesktop ? 40 : 16, 
+        30
+      ),
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           colors: [
@@ -717,12 +735,12 @@ class _HomePageState extends State<HomePage> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Expanded(
+              Expanded(
                 child: Text(
                   'Invest in TeslaX solar cells to earn daily income, achieve sustainable energy development, and alleviate the difficulties faced by Africans in using electricity.',
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: 13,
+                    fontSize: isDesktop ? 14 : 13,
                     height: 1.4,
                   ),
                 ),
@@ -732,16 +750,16 @@ class _HomePageState extends State<HomePage> {
                 clipBehavior: Clip.none,
                 children: [
                   Container(
-                    width: 90,
-                    height: 55,
+                    width: isDesktop ? 100 : 90,
+                    height: isDesktop ? 65 : 55,
                     decoration: BoxDecoration(
                       color: const Color(0xFF10B981),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.electric_car,
                       color: Colors.white,
-                      size: 40,
+                      size: isDesktop ? 44 : 40,
                     ),
                   ),
                   Positioned(
@@ -771,11 +789,11 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _balanceCard() => Transform.translate(
+  Widget _balanceCard(bool isDesktop) => Transform.translate(
     offset: const Offset(0, -16),
     child: Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.all(16),
+      margin: EdgeInsets.symmetric(horizontal: isDesktop ? 40 : 16),
+      padding: EdgeInsets.all(isDesktop ? 20 : 16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -794,35 +812,35 @@ class _HomePageState extends State<HomePage> {
           Row(
             children: [
               Container(
-                width: 40,
-                height: 40,
+                width: isDesktop ? 48 : 40,
+                height: isDesktop ? 48 : 40,
                 decoration: BoxDecoration(
                   color: const Color(0xFF8B5CF6),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.person,
                   color: Colors.white,
-                  size: 24,
+                  size: isDesktop ? 28 : 24,
                 ),
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: isDesktop ? 16 : 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       _profileData['username']?.toString() ?? 'User',
-                      style: const TextStyle(
-                        fontSize: 16,
+                      style: TextStyle(
+                        fontSize: isDesktop ? 18 : 16,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFF333333),
+                        color: const Color(0xFF333333),
                       ),
                     ),
                     Text(
                       'ID: ${_profileData['id']?.toString() ?? '---'}',
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: isDesktop ? 13 : 12,
                         color: Colors.grey[600],
                       ),
                     ),
@@ -831,7 +849,7 @@ class _HomePageState extends State<HomePage> {
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: isDesktop ? 20 : 16),
           
           // Balance section
           Row(
@@ -849,7 +867,7 @@ class _HomePageState extends State<HomePage> {
                             'Available Balance',
                             style: TextStyle(
                               color: Colors.grey[600],
-                              fontSize: 14,
+                              fontSize: isDesktop ? 15 : 14,
                             ),
                           ),
                           const Icon(
@@ -874,26 +892,29 @@ class _HomePageState extends State<HomePage> {
                           child: Icon(
                             _balanceVisible ? Icons.visibility : Icons.visibility_off,
                             color: Colors.grey[600],
-                            size: 20,
+                            size: isDesktop ? 22 : 20,
                           ),
                         ),
                         const SizedBox(width: 8),
                         Text(
                           _balanceVisible ? _balance.toStringAsFixed(0) : '*****',
-                          style: const TextStyle(
-                            fontSize: 28, // Reduced font size
+                          style: TextStyle(
+                            fontSize: isDesktop ? 32 : 28,
                             fontWeight: FontWeight.bold,
                             color: Colors.black,
                           ),
                         ),
-                        const Padding(
-                          padding: EdgeInsets.only(bottom: 4, left: 4),
+                        Padding(
+                          padding: EdgeInsets.only(
+                            bottom: isDesktop ? 6 : 4, 
+                            left: isDesktop ? 6 : 4
+                          ),
                           child: Text(
                             'Br',
                             style: TextStyle(
-                              fontSize: 18, // Reduced font size
+                              fontSize: isDesktop ? 20 : 18,
                               fontWeight: FontWeight.w600,
-                              color: Color(0xFFFF8C00),
+                              color: const Color(0xFFFF8C00),
                             ),
                           ),
                         ),
@@ -914,10 +935,17 @@ class _HomePageState extends State<HomePage> {
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(25),
                       ),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isDesktop ? 24 : 16,
+                        vertical: isDesktop ? 12 : 8,
+                      ),
                     ),
-                    child: const Text(
+                    child: Text(
                       'Withdraw',
-                      style: TextStyle(color: Color(0xFFFF8C00)),
+                      style: TextStyle(
+                        color: const Color(0xFFFF8C00),
+                        fontSize: isDesktop ? 14 : 13,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -928,10 +956,17 @@ class _HomePageState extends State<HomePage> {
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(25),
                       ),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isDesktop ? 24 : 16,
+                        vertical: isDesktop ? 12 : 8,
+                      ),
                     ),
-                    child: const Text(
+                    child: Text(
                       'Deposit',
-                      style: TextStyle(color: Colors.white),
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: isDesktop ? 14 : 13,
+                      ),
                     ),
                   ),
                 ],
@@ -943,32 +978,58 @@ class _HomePageState extends State<HomePage> {
     ),
   );
 
-  Widget _quickActions() => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+  Widget _quickActions(bool isDesktop) => Padding(
+    padding: EdgeInsets.symmetric(
+      horizontal: isDesktop ? 40 : 16, 
+      vertical: isDesktop ? 16 : 12
+    ),
     child: Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        _actionItem(Icons.monetization_on, 'Free Cash', const Color(0xFFFF8C00), onTap: _navigateToGiftRedeem),
-        _actionItem(Icons.send, 'Telegram', const Color(0xFF00BCD4), onTap: _openTelegram),
+        _actionItem(
+          Icons.monetization_on, 
+          'Free Cash', 
+          const Color(0xFFFF8C00), 
+          isDesktop: isDesktop,
+          onTap: _navigateToGiftRedeem
+        ),
+        _actionItem(
+          Icons.send, 
+          'Telegram', 
+          const Color(0xFF00BCD4), 
+          isDesktop: isDesktop,
+          onTap: _openTelegram
+        ),
         _actionItem(
           Icons.headphones, 
           'Message', 
           const Color(0xFF8B5CF6), 
+          isDesktop: isDesktop,
           badge: _chatHistory.isEmpty ? null : '${_chatHistory.length}', 
           onTap: _handleChat,
         ),
-        _actionItem(Icons.assignment, 'Task', const Color(0xFFE91E8C), onTap: () {
-          setState(() => _isApiLoading = true);
-          Future.delayed(const Duration(seconds: 2)).then((_) {
-            setState(() => _isApiLoading = false);
-            _showToast('Loading tasks...');
-          });
-        }),
+        _actionItem(
+          Icons.assignment, 
+          'Task', 
+          const Color(0xFFE91E8C), 
+          isDesktop: isDesktop,
+          onTap: () {
+            setState(() => _isApiLoading = true);
+            Future.delayed(const Duration(seconds: 2)).then((_) {
+              setState(() => _isApiLoading = false);
+              _showToast('Loading tasks...');
+            });
+          }
+        ),
       ],
     ),
   );
 
-  Widget _actionItem(IconData icon, String label, Color color, {String? badge, VoidCallback? onTap}) => GestureDetector(
+  Widget _actionItem(IconData icon, String label, Color color, {
+    bool isDesktop = false,
+    String? badge, 
+    VoidCallback? onTap
+  }) => GestureDetector(
     onTap: onTap,
     child: Column(
       children: [
@@ -976,8 +1037,8 @@ class _HomePageState extends State<HomePage> {
           clipBehavior: Clip.none,
           children: [
             Container(
-              width: 56,
-              height: 56,
+              width: isDesktop ? 64 : 56,
+              height: isDesktop ? 64 : 56,
               decoration: BoxDecoration(
                 color: color,
                 shape: BoxShape.circle,
@@ -991,7 +1052,7 @@ class _HomePageState extends State<HomePage> {
               child: Icon(
                 icon,
                 color: Colors.white,
-                size: 26,
+                size: isDesktop ? 30 : 26,
               ),
             ),
             if (badge != null && badge != '0')
@@ -1018,11 +1079,11 @@ class _HomePageState extends State<HomePage> {
               ),
           ],
         ),
-        const SizedBox(height: 6),
+        SizedBox(height: isDesktop ? 8 : 6),
         Text(
           label,
-          style: const TextStyle(
-            fontSize: 12,
+          style: TextStyle(
+            fontSize: isDesktop ? 13 : 12,
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -1030,7 +1091,7 @@ class _HomePageState extends State<HomePage> {
     ),
   );
 
-  Widget _cashChallenge() => GestureDetector(
+  Widget _cashChallenge(bool isDesktop) => GestureDetector(
     onTap: () {
       Navigator.push(
         context,
@@ -1043,8 +1104,11 @@ class _HomePageState extends State<HomePage> {
       );
     },
     child: Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      height: 140,
+      margin: EdgeInsets.symmetric(
+        horizontal: isDesktop ? 40 : 16, 
+        vertical: isDesktop ? 12 : 8
+      ),
+      height: isDesktop ? 160 : 140,
       width: double.infinity,
       decoration: BoxDecoration(
         gradient: const LinearGradient(
@@ -1079,28 +1143,28 @@ class _HomePageState extends State<HomePage> {
             child: _spinWheel(),
           ),
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.all(isDesktop ? 20 : 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Cash Challenge',
                   style: TextStyle(
-                    fontSize: 24,
+                    fontSize: isDesktop ? 28 : 24,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFFFFD700),
+                    color: const Color(0xFFFFD700),
                     fontStyle: FontStyle.italic,
                   ),
                 ),
-                const SizedBox(height: 4),
-                const Text(
+                SizedBox(height: isDesktop ? 8 : 4),
+                Text(
                   'Free win cash, products',
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: 14,
+                    fontSize: isDesktop ? 15 : 14,
                   ),
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: isDesktop ? 16 : 12),
                 ElevatedButton(
                   onPressed: () {
                     Navigator.push(
@@ -1118,13 +1182,16 @@ class _HomePageState extends State<HomePage> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isDesktop ? 28 : 24, 
+                      vertical: isDesktop ? 12 : 10
+                    ),
                   ),
-                  child: const Text(
+                  child: Text(
                     'Join now.',
                     style: TextStyle(
                       color: Colors.white,
-                      fontSize: 14,
+                      fontSize: isDesktop ? 15 : 14,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -1143,11 +1210,11 @@ class _HomePageState extends State<HomePage> {
     child: CustomPaint(painter: _WheelPainter()),
   );
 
-  Widget _welfareProducts() {
+  Widget _welfareProducts(bool isDesktop) {
     if (_vipProducts.isEmpty) {
       return Container(
-        padding: const EdgeInsets.all(20),
-        margin: const EdgeInsets.symmetric(horizontal: 16),
+        padding: EdgeInsets.all(isDesktop ? 24 : 20),
+        margin: EdgeInsets.symmetric(horizontal: isDesktop ? 40 : 16),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -1160,19 +1227,35 @@ class _HomePageState extends State<HomePage> {
         ),
         child: Column(
           children: [
-            const Icon(Icons.inventory_outlined, size: 48, color: Colors.grey),
-            const SizedBox(height: 12),
-            const Text(
-              'No investment products available',
-              style: TextStyle(color: Colors.grey),
+            Icon(
+              Icons.inventory_outlined, 
+              size: isDesktop ? 56 : 48, 
+              color: Colors.grey
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: isDesktop ? 16 : 12),
+            Text(
+              'No investment products available',
+              style: TextStyle(
+                fontSize: isDesktop ? 16 : 14,
+                color: Colors.grey,
+              ),
+            ),
+            SizedBox(height: isDesktop ? 12 : 8),
             ElevatedButton(
               onPressed: _refreshData,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF8B5CF6),
+                padding: EdgeInsets.symmetric(
+                  horizontal: isDesktop ? 32 : 24,
+                  vertical: isDesktop ? 14 : 10,
+                ),
               ),
-              child: const Text('Refresh'),
+              child: Text(
+                'Refresh',
+                style: TextStyle(
+                  fontSize: isDesktop ? 15 : 14,
+                ),
+              ),
             ),
           ],
         ),
@@ -1182,31 +1265,36 @@ class _HomePageState extends State<HomePage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
+        Padding(
+          padding: EdgeInsets.fromLTRB(
+            isDesktop ? 40 : 16, 
+            isDesktop ? 20 : 16, 
+            isDesktop ? 40 : 16, 
+            isDesktop ? 8 : 4
+          ),
           child: Text(
             'New',
             style: TextStyle(
-              fontSize: 20,
+              fontSize: isDesktop ? 22 : 20,
               fontWeight: FontWeight.bold,
               color: Colors.red,
               fontStyle: FontStyle.italic,
             ),
           ),
         ),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: isDesktop ? 40 : 16),
           child: Text(
             'Welfare Products',
             style: TextStyle(
-              fontSize: 18,
+              fontSize: isDesktop ? 20 : 18,
               fontWeight: FontWeight.w600,
             ),
           ),
         ),
-        const SizedBox(height: 12),
+        SizedBox(height: isDesktop ? 16 : 12),
         SizedBox(
-          height: 260,
+          height: isDesktop ? 280 : 260,
           child: GestureDetector(
             onPanStart: (_) => _handleUserInteraction(),
             onTapDown: (_) => _handleUserInteraction(),
@@ -1222,12 +1310,12 @@ class _HomePageState extends State<HomePage> {
               itemCount: _vipProducts.length,
               itemBuilder: (context, index) {
                 final product = _vipProducts[index];
-                return _vipCard(product, index);
+                return _vipCard(product, index, isDesktop);
               },
             ),
           ),
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: isDesktop ? 12 : 8),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: List.generate(_vipProducts.length, (i) {
@@ -1258,7 +1346,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _vipCard(Map<String, dynamic> v, int index) {
+  Widget _vipCard(Map<String, dynamic> v, int index, bool isDesktop) {
     final id = v['id'] ?? 0;
     final name = v['title'] ?? 'TeslaX VIP';
     final price = v['price'] ?? 0;
@@ -1272,7 +1360,7 @@ class _HomePageState extends State<HomePage> {
     final totalNum = totalIncome is num ? totalIncome : double.tryParse(totalIncome.toString()) ?? (dailyNum * daysNum);
     
     return Container(
-      margin: const EdgeInsets.only(right: 12),
+      margin: EdgeInsets.only(right: isDesktop ? 16 : 12),
       decoration: BoxDecoration(
         border: Border.all(color: const Color(0xFF22C55E), width: 4),
         borderRadius: BorderRadius.circular(16),
@@ -1280,7 +1368,7 @@ class _HomePageState extends State<HomePage> {
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.all(isDesktop ? 20 : 16),
             decoration: const BoxDecoration(
               gradient: LinearGradient(
                 colors: [
@@ -1300,55 +1388,58 @@ class _HomePageState extends State<HomePage> {
                 Row(
                   children: [
                     Container(
-                      width: 40,
-                      height: 40,
+                      width: isDesktop ? 48 : 40,
+                      height: isDesktop ? 48 : 40,
                       decoration: BoxDecoration(
                         color: Colors.red,
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: const Center(
+                      child: Center(
                         child: Text(
                           'T',
                           style: TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
-                            fontSize: 20,
+                            fontSize: isDesktop ? 22 : 20,
                           ),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    const Text(
+                    SizedBox(width: isDesktop ? 12 : 8),
+                    Text(
                       'TESLAX',
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
-                        fontSize: 18,
+                        fontSize: isDesktop ? 20 : 18,
                         letterSpacing: 2,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                SizedBox(height: isDesktop ? 12 : 8),
                 Text(
                   name.toString(),
-                  style: const TextStyle(color: Colors.grey),
+                  style: TextStyle(
+                    color: Colors.grey,
+                    fontSize: isDesktop ? 14 : 13,
+                  ),
                 ),
               ],
             ),
           ),
           Expanded(
             child: Container(
-              padding: const EdgeInsets.all(12),
+              padding: EdgeInsets.all(isDesktop ? 16 : 12),
               color: Colors.white,
               child: Column(
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      _stat(daysNum.toString(), 'Cycle(Days)', false),
-                      _stat(dailyNum.toStringAsFixed(0), 'Daily income(Br)', false),
-                      _stat(totalNum.toStringAsFixed(0), 'Total income(Br)', true),
+                      _stat(daysNum.toString(), 'Cycle(Days)', false, isDesktop),
+                      _stat(dailyNum.toStringAsFixed(0), 'Daily income(Br)', false, isDesktop),
+                      _stat(totalNum.toStringAsFixed(0), 'Total income(Br)', true, isDesktop),
                     ],
                   ),
                   const Spacer(),
@@ -1356,7 +1447,7 @@ class _HomePageState extends State<HomePage> {
                     onTap: priceNum > 0 ? () => _showInvestDialog(id, name.toString(), priceNum.toInt()) : null,
                     child: Container(
                       width: double.infinity,
-                      height: 48,
+                      height: isDesktop ? 52 : 48,
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
                           colors: [
@@ -1369,10 +1460,10 @@ class _HomePageState extends State<HomePage> {
                       child: Center(
                         child: Text(
                           priceNum > 0 ? '$priceNum Br  Invest' : 'FREE',
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w600,
-                            fontSize: 16,
+                            fontSize: isDesktop ? 17 : 16,
                           ),
                         ),
                       ),
@@ -1387,8 +1478,11 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _stat(String val, String label, bool hl) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+  Widget _stat(String val, String label, bool hl, bool isDesktop) => Container(
+    padding: EdgeInsets.symmetric(
+      horizontal: isDesktop ? 12 : 8, 
+      vertical: isDesktop ? 6 : 4
+    ),
     decoration: hl
         ? BoxDecoration(
             color: const Color(0xFF22C55E).withOpacity(0.1),
@@ -1400,7 +1494,7 @@ class _HomePageState extends State<HomePage> {
         Text(
           val,
           style: TextStyle(
-            fontSize: 18,
+            fontSize: isDesktop ? 20 : 18,
             fontWeight: FontWeight.bold,
             color: hl ? const Color(0xFF22C55E) : Colors.black,
           ),
@@ -1408,7 +1502,7 @@ class _HomePageState extends State<HomePage> {
         Text(
           label,
           style: TextStyle(
-            fontSize: 10,
+            fontSize: isDesktop ? 11 : 10,
             color: hl ? const Color(0xFF22C55E) : Colors.grey,
           ),
         ),
@@ -1416,11 +1510,11 @@ class _HomePageState extends State<HomePage> {
     )
   );
 
-  Widget _mainProject() {
+  Widget _mainProject(bool isDesktop) {
     if (_isMainLoading) {
       return Container(
-        margin: const EdgeInsets.all(16),
-        padding: const EdgeInsets.all(20),
+        margin: EdgeInsets.all(isDesktop ? 40 : 16),
+        padding: EdgeInsets.all(isDesktop ? 24 : 20),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -1438,12 +1532,12 @@ class _HomePageState extends State<HomePage> {
               color: const Color(0xFF8B5CF6),
               size: 40.0,
             ),
-            const SizedBox(height: 16),
-            const Text(
+            SizedBox(height: isDesktop ? 20 : 16),
+            Text(
               'Loading Main Projects...',
               style: TextStyle(
                 color: Colors.grey,
-                fontSize: 14,
+                fontSize: isDesktop ? 15 : 14,
               ),
             ),
           ],
@@ -1453,8 +1547,8 @@ class _HomePageState extends State<HomePage> {
 
     if (_mainProjects.isEmpty) {
       return Container(
-        margin: const EdgeInsets.all(16),
-        padding: const EdgeInsets.all(16),
+        margin: EdgeInsets.all(isDesktop ? 40 : 16),
+        padding: EdgeInsets.all(isDesktop ? 20 : 16),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -1467,27 +1561,43 @@ class _HomePageState extends State<HomePage> {
         ),
         child: Column(
           children: [
-            const Text(
+            Text(
               'Main Project',
               style: TextStyle(
-                fontSize: 16,
+                fontSize: isDesktop ? 18 : 16,
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 12),
-            const Icon(Icons.inventory_outlined, size: 48, color: Colors.grey),
-            const SizedBox(height: 12),
-            const Text(
-              'No projects available',
-              style: TextStyle(color: Colors.grey),
+            SizedBox(height: isDesktop ? 16 : 12),
+            Icon(
+              Icons.inventory_outlined, 
+              size: isDesktop ? 56 : 48, 
+              color: Colors.grey
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: isDesktop ? 16 : 12),
+            Text(
+              'No projects available',
+              style: TextStyle(
+                color: Colors.grey,
+                fontSize: isDesktop ? 15 : 14,
+              ),
+            ),
+            SizedBox(height: isDesktop ? 12 : 8),
             ElevatedButton(
               onPressed: _refreshData,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF8B5CF6),
+                padding: EdgeInsets.symmetric(
+                  horizontal: isDesktop ? 32 : 24,
+                  vertical: isDesktop ? 14 : 10,
+                ),
               ),
-              child: const Text('Refresh'),
+              child: Text(
+                'Refresh',
+                style: TextStyle(
+                  fontSize: isDesktop ? 15 : 14,
+                ),
+              ),
             ),
           ],
         ),
@@ -1497,12 +1607,17 @@ class _HomePageState extends State<HomePage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
+        Padding(
+          padding: EdgeInsets.fromLTRB(
+            isDesktop ? 40 : 16, 
+            isDesktop ? 12 : 8, 
+            isDesktop ? 40 : 16, 
+            isDesktop ? 12 : 8
+          ),
           child: Text(
             'Main Project',
             style: TextStyle(
-              fontSize: 16,
+              fontSize: isDesktop ? 18 : 16,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -1514,8 +1629,11 @@ class _HomePageState extends State<HomePage> {
             final index = entry.key;
             final project = entry.value;
             return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: _buildMainProjectCard(project, index),
+              padding: EdgeInsets.symmetric(
+                horizontal: isDesktop ? 40 : 16, 
+                vertical: isDesktop ? 12 : 8
+              ),
+              child: _buildMainProjectCard(project, index, isDesktop),
             );
           }).toList(),
         ),
@@ -1523,7 +1641,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildMainProjectCard(Map<String, dynamic> project, int index) {
+  Widget _buildMainProjectCard(Map<String, dynamic> project, int index, bool isDesktop) {
     final int id = (project['id'] is int) ? project['id'] : int.tryParse(project['id']?.toString() ?? '0') ?? 0;
     final String title = project['title']?.toString() ?? 'Main Project';
     
@@ -1562,7 +1680,7 @@ class _HomePageState extends State<HomePage> {
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(isDesktop ? 20 : 16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -1579,19 +1697,19 @@ class _HomePageState extends State<HomePage> {
           // Title
           Text(
             title,
-            style: const TextStyle(
-              fontSize: 16,
+            style: TextStyle(
+              fontSize: isDesktop ? 18 : 16,
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: isDesktop ? 16 : 12),
           
           Row(
             children: [
               // Image in rounded rectangle
               Container(
-                width: 70,
-                height: 70,
+                width: isDesktop ? 80 : 70,
+                height: isDesktop ? 80 : 70,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(10),
                   color: Colors.grey[200],
@@ -1600,8 +1718,8 @@ class _HomePageState extends State<HomePage> {
                   borderRadius: BorderRadius.circular(10),
                   child: Image.asset(
                     imagePath,
-                    width: 70,
-                    height: 70,
+                    width: isDesktop ? 80 : 70,
+                    height: isDesktop ? 80 : 70,
                     fit: BoxFit.cover,
                     errorBuilder: (context, error, stackTrace) {
                       return Container(
@@ -1609,11 +1727,11 @@ class _HomePageState extends State<HomePage> {
                           color: Colors.grey[300],
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: const Center(
+                        child: Center(
                           child: Icon(
                             Icons.ev_station,
-                            size: 40,
-                            color: Color(0xFF22C55E),
+                            size: isDesktop ? 44 : 40,
+                            color: const Color(0xFF22C55E),
                           ),
                         ),
                       );
@@ -1621,7 +1739,7 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: isDesktop ? 16 : 12),
               
               // Project details
               Expanded(
@@ -1630,18 +1748,18 @@ class _HomePageState extends State<HomePage> {
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontWeight: FontWeight.w600,
-                        fontSize: 16,
+                        fontSize: isDesktop ? 18 : 16,
                       ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 4),
+                    SizedBox(height: isDesktop ? 8 : 4),
                     RichText(
                       text: TextSpan(
-                        style: const TextStyle(
-                          fontSize: 13,
+                        style: TextStyle(
+                          fontSize: isDesktop ? 14 : 13,
                           color: Colors.grey,
                         ),
                         children: [
@@ -1657,8 +1775,8 @@ class _HomePageState extends State<HomePage> {
                     ),
                     Text(
                       'Available: $availableUnits/1',
-                      style: const TextStyle(
-                        fontSize: 13,
+                      style: TextStyle(
+                        fontSize: isDesktop ? 14 : 13,
                         color: Colors.grey,
                       ),
                     ),
@@ -1667,11 +1785,11 @@ class _HomePageState extends State<HomePage> {
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: isDesktop ? 16 : 12),
           
           // Stats container
           Container(
-            padding: const EdgeInsets.symmetric(vertical: 12),
+            padding: EdgeInsets.symmetric(vertical: isDesktop ? 14 : 12),
             decoration: BoxDecoration(
               color: Colors.grey[100],
               borderRadius: BorderRadius.circular(12),
@@ -1679,12 +1797,12 @@ class _HomePageState extends State<HomePage> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildStatColumn(dailyIncome.toStringAsFixed(0), 'Daily Income(Br)', false),
-                _buildStatColumn(totalIncome.toStringAsFixed(0), 'Total Income(Br)', false),
+                _buildStatColumn(dailyIncome.toStringAsFixed(0), 'Daily Income(Br)', false, isDesktop),
+                _buildStatColumn(totalIncome.toStringAsFixed(0), 'Total Income(Br)', false, isDesktop),
               ],
             ),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: isDesktop ? 16 : 12),
           
           // Price and Invest Button
           Row(
@@ -1695,13 +1813,16 @@ class _HomePageState extends State<HomePage> {
                 text: TextSpan(
                   style: const TextStyle(color: Colors.black),
                   children: [
-                    const TextSpan(text: 'Price(Br) '),
+                    TextSpan(
+                      text: 'Price(Br) ',
+                      style: TextStyle(fontSize: isDesktop ? 15 : 14),
+                    ),
                     TextSpan(
                       text: price.toStringAsFixed(0),
-                      style: const TextStyle(
-                        color: Color(0xFFFF8C00),
+                      style: TextStyle(
+                        color: const Color(0xFFFF8C00),
                         fontWeight: FontWeight.bold,
-                        fontSize: 18,
+                        fontSize: isDesktop ? 20 : 18,
                       ),
                     ),
                   ],
@@ -1718,15 +1839,18 @@ class _HomePageState extends State<HomePage> {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isDesktop ? 28 : 24, 
+                    vertical: isDesktop ? 12 : 10
+                  ),
                   elevation: 2,
                 ),
                 child: Text(
                   availableUnits > 0 ? 'INVEST' : 'SOLD OUT',
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w600,
-                    fontSize: 14,
+                    fontSize: isDesktop ? 15 : 14,
                   ),
                 ),
               ),
@@ -1738,8 +1862,11 @@ class _HomePageState extends State<HomePage> {
   }
 
   // Helper method for stats columns
-  Widget _buildStatColumn(String value, String label, bool highlight) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+  Widget _buildStatColumn(String value, String label, bool highlight, bool isDesktop) => Container(
+    padding: EdgeInsets.symmetric(
+      horizontal: isDesktop ? 12 : 8, 
+      vertical: isDesktop ? 6 : 4
+    ),
     decoration: highlight
         ? BoxDecoration(
             color: const Color(0xFF22C55E).withOpacity(0.1),
@@ -1751,7 +1878,7 @@ class _HomePageState extends State<HomePage> {
         Text(
           value,
           style: TextStyle(
-            fontSize: 18,
+            fontSize: isDesktop ? 20 : 18,
             fontWeight: FontWeight.bold,
             color: highlight ? const Color(0xFF22C55E) : Colors.black,
           ),
@@ -1759,7 +1886,7 @@ class _HomePageState extends State<HomePage> {
         Text(
           label,
           style: TextStyle(
-            fontSize: 10,
+            fontSize: isDesktop ? 11 : 10,
             color: highlight ? const Color(0xFF22C55E) : Colors.grey,
           ),
         ),

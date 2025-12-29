@@ -27,7 +27,11 @@ dependencies:
   shimmer: ^3.0.0
   intl_phone_field: ^3.0.1
   clipboard: ^0.1.3
-
+  share_plus: ^7.0.1
+  cached_network_image: ^3.3.0
+  video_player: ^2.8.0
+ 
+  chewie: ^1.7.0
 flutter:
   uses-material-design: true
 
@@ -42,4 +46,5 @@ flutter:
     - assets/images/car_7.jpg
     - assets/images/car_8.jpg
     - assets/images/logo_top.jpg
-    - assets/images/car.jpg
+    - assets/images/car.jpg 
+    - assets/images/logo_jpg.jpg

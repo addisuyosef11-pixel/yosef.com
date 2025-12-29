@@ -773,11 +773,17 @@ class OrderAdmin(admin.ModelAdmin):
     inlines = [PaymentProofInline]
     
     def payment_status(self, obj):
-        if obj.is_paid:
-            return format_html('<span style="color: green;">● Paid</span>')
-        return format_html('<span style="color: orange;">● Pending</span>')
-    payment_status.short_description = 'Status'
-
+     if obj.is_paid:
+        return format_html(
+             '<span style="color: {};">● {}</span>',
+             'green',
+             'Paid'
+        )
+     return format_html(
+        '<span style="color: {};">● {}</span>',
+        'orange',
+        'Pending'
+    )
 
 # =======================
 # PAYMENT PROOF ADMIN

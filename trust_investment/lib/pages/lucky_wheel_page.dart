@@ -1,820 +1,182 @@
-
-
-import 'dart:async';
-import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter_fortune_wheel/flutter_fortune_wheel.dart';
 import 'package:confetti/confetti.dart';
-import 'package:audioplayers/audioplayers.dart';
-import 'api_service.dart';
+import 'dart:math';
 
 class LuckyWheelPage extends StatefulWidget {
   final String token;
-  final double currentBalance;
-
+  final double currentBalance; // Add this parameter
+  
   const LuckyWheelPage({
-    Key? key,
+    Key? key, 
     required this.token,
-    required this.currentBalance,
+    required this.currentBalance, // Add this required parameter
   }) : super(key: key);
-
+  
   @override
   State<LuckyWheelPage> createState() => _LuckyWheelPageState();
 }
 
 class _LuckyWheelPageState extends State<LuckyWheelPage> {
-  final StreamController<int> _controller = StreamController<int>();
-  final ConfettiController _confettiController =
-      ConfettiController(duration: const Duration(seconds: 3));
-  final ConfettiController _couponConfettiController =
-      ConfettiController(duration: const Duration(seconds: 3));
-  final AudioPlayer _audioPlayer = AudioPlayer();
-  final TextEditingController _couponController = TextEditingController();
-
-  // Updated values and colors to match your design
-  final List<int> values = [50, 100, 150, 200, 1000, 500, 550, 600, 650, 700, 10, 800, 2000, 60, 995, 500, 1000, 0000];
-  
-  final List<Color> colors = [
-    Color(0xFFFF9800),
-    Color(0xFF4CAF50),
-    Color(0xFF8BC34A),
-    Color(0xFF00BCD4),
-    Color(0xFF9C27B0),
-    Color(0xFFFF5722),
-    Color(0xFF673AB7),
-    Color(0xFFE91E63),
-    Color(0xFF3F51B5),
-    Color(0xFF2196F3),
-    Color(0xFF009688),
-    Color(0xFFFFEB3B),
-    Color(0xFF795548),
-    Color(0xFF607D8B),
-    Color(0xFFFF4081),
-    Color(0xFF212121),
-    Color(0xFFF44336),
-    Color(0xFFE65100),
+  late ConfettiController _confettiController;
+  double _rotationAngle = 0.0;
+  bool _isSpinning = false;
+  int _selectedPrize = 0;
+  bool _showResult = false;
+  List<String> prizes = [
+    '50 Points',
+    '100 Points',
+    'Free Spin',
+    '200 Points',
+    '500 Points',
+    'Try Again',
+    '1000 Points',
+    'Bonus Gift'
   ];
-
-  bool _spinning = false;
-  List<Map<String, dynamic>> recentWinnings = [];
+  List<Color> prizeColors = [
+    Colors.red.shade400,
+    Colors.orange.shade400,
+    Colors.yellow.shade400,
+    Colors.green.shade400,
+    Colors.blue.shade400,
+    Colors.purple.shade400,
+    Colors.pink.shade400,
+    Colors.teal.shade400,
+  ];
 
   @override
   void initState() {
     super.initState();
-    _fetchRecentWinnings();
+    _confettiController = ConfettiController(duration: const Duration(seconds: 3));
   }
 
   @override
   void dispose() {
-    _controller.close();
     _confettiController.dispose();
-    _couponConfettiController.dispose();
-    _audioPlayer.dispose();
-    _couponController.dispose();
     super.dispose();
   }
 
-  Future<void> _fetchRecentWinnings() async {
-    try {
-      final data = await ApiService.getRecentWinnings(widget.token);
+  void _spinWheel() {
+    if (_isSpinning) return;
+    
+    setState(() {
+      _isSpinning = true;
+      _showResult = false;
+    });
+
+    // Random number of full rotations + a specific segment
+    int fullRotations = 5;
+    int randomPrizeIndex = Random().nextInt(prizes.length);
+    double segmentAngle = 360 / prizes.length;
+    double targetAngle = (fullRotations * 360) + (randomPrizeIndex * segmentAngle);
+    
+    // Animate the spin
+    _rotationAngle = targetAngle;
+    
+    Future.delayed(const Duration(seconds: 3), () {
       setState(() {
-        recentWinnings = data.reversed
-            .map((e) => Map<String, dynamic>.from(e))
-            .toList();
+        _isSpinning = false;
+        _selectedPrize = randomPrizeIndex;
+        _showResult = true;
       });
-    } catch (e) {
-      print("Error fetching recent winnings: $e");
-    }
-  }
-
-  void spinWheel() async {
-    if (_spinning) return;
-    setState(() => _spinning = true);
-
-    final random = Random();
-    int selectedIndex = random.nextInt(values.length);
-    double selectedAmount = values[selectedIndex].toDouble();
-
-    _audioPlayer.play(AssetSource("sounds/spin.mp3"));
-    _controller.add(selectedIndex);
-
-    Future.delayed(const Duration(seconds: 4), () async {
-      _confettiController.play();
-      _showCongratulationsOverlay(selectedAmount);
-
-      try {
-        await ApiService.recordWinning(widget.token, selectedAmount);
-        recentWinnings.insert(0, {
-          'amount': selectedAmount,
-          'timestamp': DateTime.now().toString()
-        });
-        setState(() {});
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Failed to record winning: $e")),
-        );
+      
+      if (prizes[randomPrizeIndex] != 'Try Again') {
+        _confettiController.play();
       }
-
-      setState(() => _spinning = false);
+      
+      // Show result dialog
+      _showPrizeDialog(prizes[randomPrizeIndex]);
     });
   }
 
-  void _showCongratulationsOverlay(double value) {
+  void _showPrizeDialog(String prize) {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => Stack(
-        children: [
-          AlertDialog(
-            backgroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(25),
-              side: BorderSide(color: Color(0xFFDAA520), width: 3),
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: Text(
+          prize == 'Try Again' ? 'Better Luck Next Time!' : 'Congratulations!',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: prize == 'Try Again' ? Colors.red : Colors.green,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              prize == 'Try Again' ? Icons.sentiment_dissatisfied : Icons.celebration,
+              size: 60,
+              color: prize == 'Try Again' ? Colors.red : Colors.amber,
             ),
-            content: Container(
-              constraints: BoxConstraints(minWidth: 300),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Header with X button
-                  Stack(
-                    children: [
-                      Container(
-                        padding: EdgeInsets.symmetric(vertical: 12, horizontal: 20),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              Color(0xFFFFD700),
-                              Color(0xFFDAA520),
-                              Color(0xFFFFD700),
-                            ],
-                          ),
-                          borderRadius: BorderRadius.only(
-                            topLeft: Radius.circular(20),
-                            topRight: Radius.circular(20),
-                          ),
-                        ),
-                        child: Center(
-                          child: Text(
-                            "🎉 CONGRATULATIONS! 🎉",
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                              shadows: [
-                                Shadow(
-                                  color: Colors.black54,
-                                  blurRadius: 4,
-                                  offset: Offset(1, 1),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        right: 8,
-                        top: 8,
-                        child: GestureDetector(
-                          onTap: () {
-                            Navigator.of(context).pop(); // Just close the dialog, stay in lucky wheel
-                          },
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Colors.red,
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black26,
-                                  blurRadius: 4,
-                                  offset: Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            padding: EdgeInsets.all(4),
-                            child: Icon(
-                              Icons.close,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 25),
-                  
-                  // Amount Display
-                  Container(
-                    padding: EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Color(0xFF4CAF50), Color(0xFF2E7D32)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.green[800]!.withOpacity(0.3),
-                          blurRadius: 10,
-                          offset: Offset(0, 5),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      children: [
-                        Text(
-                          "You Won",
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                            letterSpacing: 1.2,
-                          ),
-                        ),
-                        SizedBox(height: 8),
-                        Text(
-                          "$value ETB",
-                          style: TextStyle(
-                            fontSize: 36,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFFFFD700),
-                            letterSpacing: 2,
-                            shadows: [
-                              Shadow(
-                                color: Colors.black54,
-                                blurRadius: 6,
-                                offset: Offset(2, 2),
-                              ),
-                            ],
-                          ),
-                        ),
-                        SizedBox(height: 8),
-                        Text(
-                          "Added to your balance",
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.white.withOpacity(0.9),
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 30),
-                  
-                  // Buttons Row
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      // Stay in Lucky Wheel Button
-                      Expanded(
-                        child: Container(
-                          margin: EdgeInsets.only(right: 8),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black26,
-                                blurRadius: 6,
-                                offset: Offset(0, 3),
-                              ),
-                            ],
-                          ),
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Color(0xFF2196F3),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              elevation: 0,
-                            ),
-                            onPressed: () {
-                              Navigator.of(context).pop(); // Close dialog, stay in lucky wheel
-                            },
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.casino, size: 20),
-                                SizedBox(width: 8),
-                                Text(
-                                  "STAY",
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 1.2,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      
-                      // Back to Home Button
-                      Expanded(
-                        child: Container(
-                          margin: EdgeInsets.only(left: 8),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black26,
-                                blurRadius: 6,
-                                offset: Offset(0, 3),
-                              ),
-                            ],
-                          ),
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Color(0xFFDAA520),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              elevation: 0,
-                            ),
-                            onPressed: () {
-                              double newBalance = widget.currentBalance + value;
-                              Navigator.of(context).pop(); // close dialog
-                              Navigator.of(context).pop(newBalance); // return updated balance
-                            },
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.home, size: 20),
-                                SizedBox(width: 8),
-                                Text(
-                                  "HOME",
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 1.2,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+            const SizedBox(height: 20),
+            Text(
+              'You won:',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey.shade600,
               ),
             ),
-          ),
-          Align(
-            alignment: Alignment.topCenter,
-            child: ConfettiWidget(
-              confettiController: _confettiController,
-              blastDirectionality: BlastDirectionality.explosive,
-              shouldLoop: false,
-              colors: colors,
-              gravity: 0.3,
-              emissionFrequency: 0.05,
-              numberOfParticles: 30,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showCouponDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (_) => Stack(
-        children: [
-          AlertDialog(
-            backgroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(25),
-              side: BorderSide(color: Color(0xFF2196F3), width: 3),
-            ),
-            content: Container(
-              constraints: BoxConstraints(minWidth: 300, maxWidth: 400),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Header
-                  Container(
-                    padding: EdgeInsets.symmetric(vertical: 15, horizontal: 20),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          Color(0xFF2196F3),
-                          Color(0xFF1976D2),
-                          Color(0xFF0D47A1),
-                        ],
-                      ),
-                      borderRadius: BorderRadius.only(
-                        topLeft: Radius.circular(20),
-                        topRight: Radius.circular(20),
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.blue[900]!.withOpacity(0.3),
-                          blurRadius: 10,
-                          offset: Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Center(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.card_giftcard, color: Colors.white, size: 28),
-                          SizedBox(width: 12),
-                          Text(
-                            "CLAIM COUPON",
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                              letterSpacing: 1.5,
-                              shadows: [
-                                Shadow(
-                                  color: Colors.black54,
-                                  blurRadius: 4,
-                                  offset: Offset(1, 1),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 25),
-                  
-                  // Instruction Text
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                    child: Text(
-                      "Enter your coupon code below to claim your bonus",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.grey[700],
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 20),
-                  
-                  // Coupon Input Field
-                  Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(15),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.blue[100]!,
-                          blurRadius: 10,
-                          spreadRadius: 2,
-                        ),
-                      ],
-                    ),
-                    child: TextField(
-                      controller: _couponController,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.blue[900],
-                        letterSpacing: 2,
-                      ),
-                      decoration: InputDecoration(
-                        filled: true,
-                        fillColor: Colors.white,
-                        hintText: "ENTER CODE",
-                        hintStyle: TextStyle(
-                          color: Colors.grey[400],
-                          letterSpacing: 2,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(15),
-                          borderSide: BorderSide(color: Color(0xFF2196F3), width: 3),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(15),
-                          borderSide: BorderSide(color: Color(0xFF2196F3), width: 3),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(15),
-                          borderSide: BorderSide(color: Color(0xFF0D47A1), width: 3),
-                        ),
-                        contentPadding: EdgeInsets.symmetric(vertical: 18, horizontal: 20),
-                        suffixIcon: Icon(
-                          Icons.confirmation_number,
-                          color: Color(0xFF2196F3),
-                          size: 28,
-                        ),
-                      ),
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 30),
-                  
-                  // Claim Button
-                  Container(
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(15),
-                      gradient: LinearGradient(
-                        colors: [
-                          Color(0xFFFF9800),
-                          Color(0xFFFF5722),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.orange[800]!.withOpacity(0.4),
-                          blurRadius: 10,
-                          offset: Offset(0, 5),
-                        ),
-                      ],
-                    ),
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.transparent,
-                        foregroundColor: Colors.white,
-                        shadowColor: Colors.transparent,
-                        padding: const EdgeInsets.symmetric(vertical: 18),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                        elevation: 0,
-                      ),
-                      onPressed: () async {
-                        String couponCode = _couponController.text.trim();
-                        if (couponCode.isEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text("Please enter a coupon code"),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
-                          return;
-                        }
-                        
-                        // Simulate API call
-                        _couponConfettiController.play();
-                        
-                        // Show success message
-                        _showCouponSuccessDialog(couponCode);
-                      },
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.verified, size: 24),
-                          SizedBox(width: 12),
-                          Text(
-                            "CLAIM NOW",
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 1.5,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 15),
-                  
-                  // Cancel Button
-                  TextButton(
-                    onPressed: () {
-                      _couponController.clear();
-                      Navigator.of(context).pop();
-                    },
-                    child: Text(
-                      "Cancel",
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.grey[600],
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
+            const SizedBox(height: 10),
+            Text(
+              prize,
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: prizeColors[_selectedPrize],
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showCouponSuccessDialog(String couponCode) {
-    Navigator.of(context).pop(); // Close the input dialog
-    
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => Stack(
-        children: [
-          AlertDialog(
-            backgroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(25),
-              side: BorderSide(color: Color(0xFF4CAF50), width: 3),
-            ),
-            content: Container(
-              constraints: BoxConstraints(minWidth: 300),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+            const SizedBox(height: 20),
+            // Show current balance
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Success Header
-                  Container(
-                    padding: EdgeInsets.symmetric(vertical: 15, horizontal: 20),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          Color(0xFF4CAF50),
-                          Color(0xFF2E7D32),
-                          Color(0xFF1B5E20),
-                        ],
-                      ),
-                      borderRadius: BorderRadius.only(
-                        topLeft: Radius.circular(20),
-                        topRight: Radius.circular(20),
-                      ),
-                    ),
-                    child: Center(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.verified, color: Colors.white, size: 30),
-                          SizedBox(width: 15),
-                          Text(
-                            "SUCCESS!",
-                            style: TextStyle(
-                              fontSize: 26,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                              letterSpacing: 1.5,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                  Icon(
+                    Icons.account_balance_wallet,
+                    color: Color(0xFF4F46E5),
                   ),
-                  
-                  const SizedBox(height: 25),
-                  
-                  // Success Icon
-                  Container(
-                    width: 100,
-                    height: 100,
-                    decoration: BoxDecoration(
-                      color: Color(0xFF4CAF50).withOpacity(0.1),
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: Color(0xFF4CAF50),
-                        width: 3,
-                      ),
-                    ),
-                    child: Icon(
-                      Icons.check_circle,
-                      color: Color(0xFF4CAF50),
-                      size: 70,
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 20),
-                  
-                  // Success Message
+                  const SizedBox(width: 8),
                   Text(
-                    "Coupon Claimed Successfully!",
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF2E7D32),
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 15),
-                  
-                  // Coupon Code Display
-                  Container(
-                    padding: EdgeInsets.all(15),
-                    decoration: BoxDecoration(
-                      color: Color(0xFFE8F5E9),
-                      borderRadius: BorderRadius.circular(15),
-                      border: Border.all(
-                        color: Color(0xFF4CAF50),
-                        width: 2,
-                      ),
-                    ),
-                    child: Text(
-                      couponCode,
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF1B5E20),
-                        letterSpacing: 3,
-                      ),
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 15),
-                  
-                  Text(
-                    "100 ETB has been added to your balance",
-                    textAlign: TextAlign.center,
+                    'Balance: \$${widget.currentBalance.toStringAsFixed(2)}',
                     style: TextStyle(
                       fontSize: 16,
-                      color: Colors.grey[700],
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 25),
-                  
-                  // OK Button
-                  Container(
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(15),
-                      gradient: LinearGradient(
-                        colors: [
-                          Color(0xFF4CAF50),
-                          Color(0xFF2E7D32),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.green[800]!.withOpacity(0.3),
-                          blurRadius: 8,
-                          offset: Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.transparent,
-                        foregroundColor: Colors.white,
-                        shadowColor: Colors.transparent,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                        elevation: 0,
-                      ),
-                      onPressed: () {
-                        _couponController.clear();
-                        Navigator.of(context).pop();
-                      },
-                      child: Text(
-                        "GOT IT!",
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.5,
-                        ),
-                      ),
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF4F46E5),
                     ),
                   ),
                 ],
               ),
             ),
-          ),
-          Align(
-            alignment: Alignment.center,
-            child: ConfettiWidget(
-              confettiController: _couponConfettiController,
-              blastDirectionality: BlastDirectionality.explosive,
-              shouldLoop: false,
-              colors: [
-                Color(0xFF4CAF50),
-                Color(0xFF2196F3),
-                Color(0xFFFF9800),
-                Color(0xFFE91E63),
-              ],
-              gravity: 0.1,
-              emissionFrequency: 0.05,
-              numberOfParticles: 20,
-              maxBlastForce: 20,
-              minBlastForce: 5,
+          ],
+        ),
+        actions: [
+          Center(
+            child: ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF4F46E5),
+                padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: const Text(
+                'OK',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
           ),
         ],
@@ -824,539 +186,490 @@ class _LuckyWheelPageState extends State<LuckyWheelPage> {
 
   @override
   Widget build(BuildContext context) {
-    final screenHeight = MediaQuery.of(context).size.height;
-    final screenWidth = MediaQuery.of(context).size.width;
-
     return Scaffold(
-      backgroundColor: Color(0xFFF5F5F5),
       appBar: AppBar(
-        title: Text(
-          "LUCKY WHEEL",
+        title: const Text(
+          'Lucky Wheel',
           style: TextStyle(
-            color: Colors.white,
-            fontSize: 22,
             fontWeight: FontWeight.bold,
-            letterSpacing: 1.5,
-            shadows: [
-              Shadow(
-                color: Colors.black54,
-                blurRadius: 4,
-                offset: Offset(1, 1),
-              ),
-            ],
+            color: Colors.white,
           ),
         ),
         centerTitle: true,
-        backgroundColor: Color(0xFFDAA520),
-        elevation: 10,
-        iconTheme: const IconThemeData(color: Colors.white),
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Color(0xFFFFD700),
-                Color(0xFFDAA520),
-                Color(0xFFFFD700),
-              ],
-            ),
-          ),
+        backgroundColor: const Color(0xFF4F46E5),
+        elevation: 5,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
         ),
         actions: [
-          // Claim Coupon Button in AppBar
+          // Display current balance in app bar
           Padding(
-            padding: const EdgeInsets.only(right: 16.0),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(20),
-                gradient: LinearGradient(
-                  colors: [
-                    Color(0xFF2196F3),
-                    Color(0xFF1976D2),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.blue[800]!.withOpacity(0.3),
-                    blurRadius: 8,
-                    offset: Offset(0, 3),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.account_balance_wallet,
+                    color: Colors.white,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '\$${widget.currentBalance.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ],
-              ),
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.transparent,
-                  foregroundColor: Colors.white,
-                  shadowColor: Colors.transparent,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                ),
-                onPressed: _showCouponDialog,
-                icon: Icon(Icons.card_giftcard, size: 20),
-                label: Text(
-                  "Claim Coupon",
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.5,
-                  ),
-                ),
               ),
             ),
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        child: Container(
-          constraints: BoxConstraints(
-            minHeight: screenHeight,
-          ),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Color(0xFFFFF8E1),
-                Color(0xFFFFF3E0),
-                Colors.white,
-              ],
+      body: Stack(
+        children: [
+          // Background
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  const Color(0xFF4F46E5).withOpacity(0.1),
+                  const Color(0xFF7C3AED).withOpacity(0.05),
+                  Colors.white,
+                ],
+              ),
             ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                // Balance Display
-                Container(
-                  padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Color(0xFF4CAF50), Color(0xFF2E7D32)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.green[800]!.withOpacity(0.4),
-                        blurRadius: 10,
-                        offset: Offset(0, 4),
-                      ),
-                    ],
-                    border: Border.all(
-                      color: Color(0xFFDAA520),
-                      width: 2,
-                    ),
-                  ),
-                  child: Text(
-                    "BALANCE: ${widget.currentBalance.toStringAsFixed(2)} ETB",
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                      letterSpacing: 1.2,
-                      shadows: [
-                        Shadow(
-                          color: Colors.black54,
-                          blurRadius: 3,
-                          offset: Offset(1, 1),
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Wheel Container
+                    Container(
+                      width: 300,
+                      height: 300,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(150),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.2),
+                            blurRadius: 20,
+                            spreadRadius: 2,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
+                        border: Border.all(
+                          color: const Color(0xFF4F46E5),
+                          width: 5,
                         ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 30),
-                
-                // Wheel Container
-                Container(
-                  width: min(screenWidth * 0.85, 320),
-                  height: min(screenWidth * 0.85, 320),
-                  padding: EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Color(0xFFFFD700),
-                        Color(0xFFDAA520),
-                        Color(0xFFFFD700),
-                      ],
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black26,
-                        blurRadius: 15,
-                        offset: Offset(0, 8),
                       ),
-                      BoxShadow(
-                        color: Colors.amber[100]!.withOpacity(0.3),
-                        blurRadius: 20,
-                        spreadRadius: 2,
-                        offset: Offset(0, -4),
-                      ),
-                    ],
-                  ),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Color(0xFFDAA520), width: 4),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
-                          blurRadius: 10,
-                          spreadRadius: 1,
-                        ),
-                      ],
-                    ),
-                    child: ClipOval(
-                      child: SizedBox(
-                        height: 280,
-                        width: 280,
-                        child: FortuneWheel(
-                          selected: _controller.stream,
-                          animateFirst: false,
-                          physics: CircularPanPhysics(
-                            duration: const Duration(seconds: 4),
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          // Wheel
+                          AnimatedRotation(
+                            duration: const Duration(seconds: 3),
                             curve: Curves.easeOutCubic,
-                          ),
-                          items: [
-                            for (int i = 0; i < values.length; i++)
-                              FortuneItem(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(8.0),
-                                  child: Transform.rotate(
-                                    angle: -pi / 2,
-                                    child: Text(
-                                      values[i].toString(),
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                        shadows: [
-                                          Shadow(
-                                            color: Colors.black54,
-                                            blurRadius: 3,
-                                            offset: Offset(1, 1),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                style: FortuneItemStyle(
-                                  color: colors[i],
-                                  borderColor: Colors.white,
-                                  borderWidth: 2,
-                                ),
-                              ),
-                          ],
-                          indicators: [
-                            FortuneIndicator(
-                              alignment: Alignment.topCenter,
-                              child: Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  Container(
-                                    width: 40,
-                                    height: 60,
-                                    decoration: BoxDecoration(
-                                      color: Color(0xFFDAA520),
-                                      borderRadius: BorderRadius.only(
-                                        bottomLeft: Radius.circular(20),
-                                        bottomRight: Radius.circular(20),
-                                      ),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withOpacity(0.3),
-                                          blurRadius: 8,
-                                          offset: Offset(0, 4),
-                                        ),
-                                      ],
-                                  ),
-                                  ),
-                                  Icon(
-                                    Icons.arrow_drop_down,
-                                    size: 50,
-                                    color: Colors.white,
-                                    shadows: [
-                                      Shadow(
-                                        color: Colors.black54,
-                                        blurRadius: 4,
-                                        offset: Offset(1, 1),
-                                      ),
-                                    ],
-                                  ),
-                                ],
+                            turns: _rotationAngle / 360,
+                            child: CustomPaint(
+                              size: const Size(280, 280),
+                              painter: WheelPainter(
+                                prizes: prizes,
+                                colors: prizeColors,
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                
-                // Spin Button
-                const SizedBox(height: 30),
-                Container(
-                  width: 180,
-                  height: 180,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      // Outer glow effect
-                      Container(
-                        width: 160,
-                        height: 160,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: RadialGradient(
-                            colors: [
-                              Colors.amber.withOpacity(0.2),
-                              Colors.transparent,
-                            ],
-                            stops: [0.1, 1.0],
                           ),
-                        ),
-                      ),
-                      // Main button
-                      ElevatedButton(
-                        onPressed: _spinning ? null : spinWheel,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Color(0xFFDAA520),
-                          foregroundColor: Colors.white,
-                          shape: CircleBorder(),
-                          padding: EdgeInsets.all(25),
-                          elevation: 15,
-                          shadowColor: Colors.amber[800],
-                          side: BorderSide(
-                            color: Color(0xFFFFD700),
-                            width: 4,
-                          ),
-                        ),
-                        child: Container(
-                          width: 120,
-                          height: 120,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: _spinning
-                                  ? [Colors.grey[600]!, Colors.grey[800]!]
-                                  : [
-                                      Color(0xFFFFD700),
-                                      Color(0xFFDAA520),
-                                      Color(0xFFFFD700),
-                                    ],
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.4),
-                                blurRadius: 10,
-                                offset: Offset(0, 6),
-                              ),
-                              if (!_spinning)
+                          
+                          // Center Circle
+                          Container(
+                            width: 60,
+                            height: 60,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF4F46E5),
+                              shape: BoxShape.circle,
+                              boxShadow: [
                                 BoxShadow(
-                                  color: Colors.amber[200]!.withOpacity(0.4),
+                                  color: Colors.black.withOpacity(0.3),
                                   blurRadius: 10,
                                   spreadRadius: 2,
-                                  offset: Offset(0, -3),
                                 ),
-                            ],
+                              ],
+                            ),
+                            child: const Icon(
+                              Icons.star,
+                              color: Colors.white,
+                              size: 30,
+                            ),
                           ),
-                          child: Center(
-                            child: Text(
-                              _spinning ? "SPINNING..." : "SPIN",
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 2,
-                                color: Colors.white,
-                                shadows: [
-                                  Shadow(
-                                    color: Colors.black54,
-                                    blurRadius: 4,
-                                    offset: Offset(2, 2),
+                          
+                          // Pointer
+                          Positioned(
+                            top: 0,
+                            child: Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: Colors.red.shade500,
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.red.withOpacity(0.5),
+                                    blurRadius: 10,
+                                    spreadRadius: 2,
                                   ),
                                 ],
                               ),
+                              child: const Icon(
+                                Icons.arrow_drop_down,
+                                color: Colors.white,
+                                size: 40,
+                              ),
                             ),
                           ),
-                        ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
-                
-                // Recent Winnings Section
-                const SizedBox(height: 30),
-                Container(
-                  width: double.infinity,
-                  padding: EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Colors.white,
-                        Color(0xFFFFF8E1),
-                        Colors.white,
-                      ],
                     ),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black12,
-                        blurRadius: 10,
-                        offset: Offset(0, 4),
-                      ),
-                    ],
-                    border: Border.all(
-                      color: Color(0xFFDAA520),
-                      width: 2,
-                    ),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Center(
-                        child: Text(
-                          "RECENT WINNINGS",
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFFDAA520),
-                            letterSpacing: 1.5,
+                    
+                    const SizedBox(height: 40),
+                    
+                    // Prize List
+                    if (_showResult)
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: prizeColors[_selectedPrize].withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(15),
+                          border: Border.all(
+                            color: prizeColors[_selectedPrize],
+                            width: 2,
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      Divider(
-                        color: Color(0xFFDAA520),
-                        thickness: 2,
-                      ),
-                      const SizedBox(height: 10),
-                      if (recentWinnings.isEmpty)
-                        Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.emoji_events,
-                                size: 60,
-                                color: Colors.grey[400],
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.celebration,
+                              color: prizeColors[_selectedPrize],
+                              size: 30,
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              'You won: ${prizes[_selectedPrize]}',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: prizeColors[_selectedPrize],
                               ),
-                              SizedBox(height: 10),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      Column(
+                        children: [
+                          Text(
+                            'Available Prizes',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey.shade700,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 10,
+                            children: List.generate(prizes.length, (index) {
+                              return Chip(
+                                label: Text(
+                                  prizes[index],
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                backgroundColor: prizeColors[index],
+                                side: BorderSide.none,
+                              );
+                            }),
+                          ),
+                        ],
+                      ),
+                    
+                    const SizedBox(height: 40),
+                    
+                    // Spin Button
+                    ElevatedButton(
+                      onPressed: _isSpinning ? null : _spinWheel,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF4F46E5),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 60,
+                          vertical: 18,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                        elevation: 5,
+                        shadowColor: const Color(0xFF4F46E5).withOpacity(0.5),
+                      ),
+                      child: _isSpinning
+                          ? Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  'Spinning...',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.casino, size: 24),
+                                const SizedBox(width: 10),
+                                Text(
+                                  'SPIN WHEEL',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 1,
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+                    
+                    const SizedBox(height: 20),
+                    
+                    // Current Balance Display
+                    Container(
+                      padding: const EdgeInsets.all(15),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF4F46E5).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: const Color(0xFF4F46E5),
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
                               Text(
-                                "No recent winnings yet",
+                                'Your Balance',
                                 style: TextStyle(
-                                  fontSize: 16,
-                                  color: Colors.grey[600],
-                                  fontStyle: FontStyle.italic,
+                                  fontSize: 14,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              Text(
+                                '\$${widget.currentBalance.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF4F46E5),
                                 ),
                               ),
                             ],
                           ),
-                        )
-                      else
-                        Container(
-                          constraints: BoxConstraints(
-                            maxHeight: 200,
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF4F46E5),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(
+                              Icons.account_balance_wallet,
+                              color: Colors.white,
+                              size: 30,
+                            ),
                           ),
-                          child: ListView.builder(
-                            shrinkWrap: true,
-                            physics: BouncingScrollPhysics(),
-                            itemCount: min(recentWinnings.length, 5),
-                            itemBuilder: (context, index) {
-                              final win = recentWinnings[index];
-                              return Container(
-                                margin: EdgeInsets.symmetric(vertical: 6),
-                                padding: EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(12),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black12,
-                                      blurRadius: 4,
-                                      offset: Offset(0, 2),
-                                    ),
-                                  ],
-                                  border: Border.all(
-                                    color: Colors.amber[100]!,
-                                    width: 1,
-                                  ),
+                        ],
+                      ),
+                    ),
+                    
+                    const SizedBox(height: 20),
+                    
+                    // Instructions
+                    Container(
+                      padding: const EdgeInsets.all(15),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.info,
+                                color: Colors.blue.shade600,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'How to Play:',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.blue.shade600,
                                 ),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      padding: EdgeInsets.all(8),
-                                      decoration: BoxDecoration(
-                                        gradient: LinearGradient(
-                                          colors: [
-                                            Color(0xFFFFD700),
-                                            Color(0xFFDAA520),
-                                          ],
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                        ),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: Icon(
-                                        Icons.emoji_events,
-                                        color: Colors.white,
-                                        size: 24,
-                                      ),
-                                    ),
-                                    SizedBox(width: 15),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            "${win['amount']} ETB",
-                                            style: TextStyle(
-                                              fontSize: 18,
-                                              fontWeight: FontWeight.bold,
-                                              color: Color(0xFF2E7D32),
-                                            ),
-                                          ),
-                                          SizedBox(height: 4),
-                                          Text(
-                                            win['timestamp'].toString(),
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.grey[600],
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
+                              ),
+                            ],
                           ),
-                        ),
-                    ],
-                  ),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Tap the SPIN WHEEL button to try your luck! Each spin gives you a chance to win exciting prizes. You can spin once per day.',
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Cost per spin: \$0.00 (Free!)',
+                            style: TextStyle(
+                              color: Colors.green.shade600,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                SizedBox(height: 20),
-              ],
+              ),
             ),
           ),
-        ),
+          
+          // Confetti
+          ConfettiWidget(
+            confettiController: _confettiController,
+            blastDirection: pi / 2,
+            maxBlastForce: 20,
+            minBlastForce: 15,
+            emissionFrequency: 0.05,
+            numberOfParticles: 20,
+            gravity: 0.1,
+            shouldLoop: false,
+            colors: const [
+              Colors.green,
+              Colors.blue,
+              Colors.pink,
+              Colors.orange,
+              Colors.purple,
+            ],
+          ),
+        ],
       ),
     );
   }
+}
+
+// Custom painter for the wheel
+class WheelPainter extends CustomPainter {
+  final List<String> prizes;
+  final List<Color> colors;
+
+  WheelPainter({required this.prizes, required this.colors});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
+    final sweepAngle = 2 * pi / prizes.length;
+
+    for (int i = 0; i < prizes.length; i++) {
+      final startAngle = i * sweepAngle;
+      final endAngle = startAngle + sweepAngle;
+
+      // Draw segment
+      final segmentPaint = Paint()
+        ..color = colors[i]
+        ..style = PaintingStyle.fill;
+      
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        startAngle,
+        sweepAngle,
+        true,
+        segmentPaint,
+      );
+
+      // Draw segment border
+      final borderPaint = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
+      
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        startAngle,
+        sweepAngle,
+        true,
+        borderPaint,
+      );
+
+      // Draw text
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: prizes[i],
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+        textAlign: TextAlign.center,
+      );
+      
+      textPainter.layout();
+      
+      final angle = startAngle + sweepAngle / 2;
+      final textX = center.dx + (radius * 0.6) * cos(angle);
+      final textY = center.dy + (radius * 0.6) * sin(angle);
+      
+      canvas.save();
+      canvas.translate(textX, textY);
+      canvas.rotate(angle + pi / 2);
+      textPainter.paint(
+        canvas,
+        Offset(-textPainter.width / 2, -textPainter.height / 2),
+      );
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

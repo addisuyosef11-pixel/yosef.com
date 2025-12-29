@@ -1,9 +1,9 @@
+
+
 import 'package:flutter/material.dart';
 import 'api_service.dart';
 import 'signup_page.dart';
-import 'home_page.dart';
 import '../main.dart'; // Add this import to access MainNavigation
-import 'dart:convert';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -18,7 +18,6 @@ class _LoginPageState extends State<LoginPage> {
 
   bool _obscurePassword = true;
   bool _isLoading = false;
-  String _countryCode = '+251';
   String _username = '';
 
   @override
@@ -37,18 +36,15 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _isLoading = true);
 
     try {
-      // FIXED: Use named parameters
       final result = await ApiService.login(
-        username: _username,  // Named parameter
+        username: _username,
         password: _passwordController.text,
       );
 
-      // Check if login was successful
       if (result.containsKey('token') && mounted) {
         final token = result['token'];
         _showSnackBar("Login successful", isError: false);
 
-        // FIXED: Navigate to MainNavigation instead of HomePage
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
@@ -68,10 +64,14 @@ class _LoginPageState extends State<LoginPage> {
   void _showSnackBar(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? Colors.red : Colors.green,
+        content: Text(
+          message,
+          style: const TextStyle(color: Colors.white),
+        ),
+        backgroundColor: isError ? Colors.red.shade700 : Colors.green.shade700,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        elevation: 5,
       ),
     );
   }
@@ -80,20 +80,32 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF9C27B0), Color(0xFFE1BEE7)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
+        decoration: BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage('assets/images/logo_jpg.jpg'),
+            fit: BoxFit.cover,
+            colorFilter: ColorFilter.mode(
+              Colors.black.withOpacity(0.3),
+              BlendMode.darken,
+            ),
         ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                _buildHeroBanner(),
-                _buildLoginForm(),
-              ],
+        ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 500,
+              minWidth: 300,
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildHeroBanner(),
+                  const SizedBox(height: 40),
+                  _buildLoginForm(),
+                ],
+              ),
             ),
           ),
         ),
@@ -103,30 +115,42 @@ class _LoginPageState extends State<LoginPage> {
 
   Widget _buildHeroBanner() {
     return Container(
-      height: 200,
-      margin: const EdgeInsets.all(16),
+      height: 140,
+      margin: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        gradient: const LinearGradient(
-          colors: [Color(0xFF7B1FA2), Color(0xFFE91E63), Color(0xFFFF9800)],
-        ),
+        color: Colors.white.withOpacity(0.95),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
+            color: Colors.black.withOpacity(0.15),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
-      child: const Center(
-        child: Text(
-          "Welcome Back",
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 32,
-            fontWeight: FontWeight.bold,
-            fontStyle: FontStyle.italic,
-          ),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text(
+              "Welcome Back",
+              style: TextStyle(
+                color: Color(0xFF2D3748),
+                fontSize: 32,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.5,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "Sign in to continue",
+              style: TextStyle(
+                color: Colors.grey.shade600,
+                fontSize: 16,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -134,16 +158,16 @@ class _LoginPageState extends State<LoginPage> {
 
   Widget _buildLoginForm() {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(32),
       decoration: BoxDecoration(
-        color: const Color(0xFFF3E5F5),
-        borderRadius: BorderRadius.circular(20),
+        color: Colors.white.withOpacity(0.95),
+        borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
+            blurRadius: 30,
+            spreadRadius: 1,
+            offset: const Offset(0, 15),
           ),
         ],
       ),
@@ -151,21 +175,23 @@ class _LoginPageState extends State<LoginPage> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text(
-            'Login',
+            'Login to Your Account',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF4A148C),
+              fontSize: 26,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF2D3748),
+              letterSpacing: 0.3,
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 32),
 
           // Username/Phone Field
           TextFormField(
             controller: _usernameController,
             decoration: InputDecoration(
-              hintText: 'Enter your username or phone',
+              hintText: 'Username or Phone Number',
+              hintStyle: TextStyle(color: Colors.grey.shade500),
               prefixIcon: const Icon(Icons.person_outline, color: Colors.grey),
               filled: true,
               fillColor: Colors.white,
@@ -173,24 +199,31 @@ class _LoginPageState extends State<LoginPage> {
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide.none,
               ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
             ),
+            style: const TextStyle(fontSize: 16, color: Colors.black87),
             onChanged: (value) {
               setState(() => _username = value.trim());
             },
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
 
           // Password Field
           TextFormField(
             controller: _passwordController,
             obscureText: _obscurePassword,
             decoration: InputDecoration(
-              hintText: 'Enter your password',
+              hintText: 'Password',
+              hintStyle: TextStyle(color: Colors.grey.shade500),
               prefixIcon: const Icon(Icons.lock_outline, color: Colors.grey),
               suffixIcon: IconButton(
                 icon: Icon(
                   _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                  color: Colors.grey,
+                  color: Colors.grey.shade600,
                 ),
                 onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
               ),
@@ -200,39 +233,119 @@ class _LoginPageState extends State<LoginPage> {
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide.none,
               ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+            ),
+            style: const TextStyle(fontSize: 16, color: Colors.black87),
+          ),
+          const SizedBox(height: 8),
+
+          // Forgot Password
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: () {
+                // Add forgot password functionality
+              },
+              style: TextButton.styleFrom(
+                padding: EdgeInsets.zero,
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: Text(
+                'Forgot Password?',
+                style: TextStyle(
+                  color: Color(0xFF4F46E5),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
             ),
           ),
           const SizedBox(height: 32),
 
-          // Login Button
+          // Login Button - WITH WHITE TEXT
           ElevatedButton(
             onPressed: _isLoading ? null : _handleLogin,
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF7B1FA2),
-              padding: const EdgeInsets.symmetric(vertical: 16),
+              backgroundColor: Color(0xFF4F46E5), // Professional indigo color
+              foregroundColor: Colors.white, // White text color
+              padding: const EdgeInsets.symmetric(vertical: 18),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(30),
+                borderRadius: BorderRadius.circular(12),
               ),
+              elevation: 5,
+              shadowColor: Color(0xFF4F46E5).withOpacity(0.4),
+              disabledBackgroundColor: Colors.grey.shade400,
             ),
             child: _isLoading
-                ? const CircularProgressIndicator(color: Colors.white)
+                ? SizedBox(
+                    height: 24,
+                    width: 24,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: Colors.white,
+                    ),
+                  )
                 : const Text(
-                    'LOGIN',
+                    'SIGN IN',
                     style: TextStyle(
                       fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.2,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.8,
+                      color: Colors.white, // Explicit white text color
                     ),
                   ),
           ),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 32),
 
-          // Signup link
+          // Divider
+          Row(
+            children: [
+              Expanded(
+                child: Divider(
+                  color: Colors.grey.shade300,
+                  thickness: 1,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  'OR',
+                  style: TextStyle(
+                    color: Colors.grey.shade500,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Divider(
+                  color: Colors.grey.shade300,
+                  thickness: 1,
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 24),
+
+          // Signup section
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text('Don\'t have an account?', style: TextStyle(color: Colors.grey)),
+              Text(
+                "Don't have an account?",
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+              const SizedBox(width: 8),
               TextButton(
                 onPressed: () {
                   Navigator.pushReplacement(
@@ -240,11 +353,20 @@ class _LoginPageState extends State<LoginPage> {
                     MaterialPageRoute(builder: (_) => const SignupPage()),
                   );
                 },
-                child: const Text(
-                  'Sign Up',
-                  style: TextStyle(
-                    color: Color(0xFF7B1FA2),
-                    fontWeight: FontWeight.bold,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: Text(
+                  'Create Account',
+                  style: const TextStyle(
+                    color: Color(0xFF4F46E5),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    decoration: TextDecoration.underline,
+                    decorationThickness: 1.5,
                   ),
                 ),
               ),

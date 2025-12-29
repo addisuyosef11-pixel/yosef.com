@@ -15,26 +15,26 @@ class OrderPage extends StatefulWidget {
 
 class _OrderPageState extends State<OrderPage> {
   double _balance = 0.0;
-  double _todaysTotalIncome = 0.0; // Total claimed today
+  double _todaysTotalIncome = 0.0;
+  double _totalIncome = 0.0;
+  double _totalPotentialIncome = 0.0;
   bool _isLoading = true;
   bool _isProcessing = false;
   bool _isApiLoading = false;
   bool _balanceVisible = true;
   
-  int _selectedTab = 0; // 0 = All, 1 = Active, 2 = Completed
+  int _selectedTab = 0;
   List<Map<String, dynamic>> _userInvestments = [];
   List<Map<String, dynamic>> _activeInvestments = [];
   List<Map<String, dynamic>> _completedInvestments = [];
   
-  // Timer for countdown
   late Timer _timer;
-  Map<int, Duration> _claimTimers = {}; // investment_id -> time remaining
-  Map<int, double> _todaysClaims = {}; // investment_id -> amount claimed today
+  Map<int, Duration> _claimTimers = {};
+  Map<int, double> _todaysClaims = {};
   
-  // Track today's date to reset daily income
   String _todayDate = "";
+  DateTime? _lastDayResetTime;
   
-  // For showing in-line messages
   String _message = "";
   Color _messageColor = Colors.green;
   bool _showMessage = false;
@@ -42,10 +42,10 @@ class _OrderPageState extends State<OrderPage> {
   @override
   void initState() {
     super.initState();
-    _todayDate = DateTime.now().toIso8601String().split('T')[0]; // Get YYYY-MM-DD
+    _todayDate = DateTime.now().toIso8601String().split('T')[0];
     _loadData();
-    // Start timer for countdown updates
-    _timer = Timer.periodic(Duration(seconds: 1), (timer) {
+    
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (mounted) {
         setState(() {
           _updateClaimTimers();
@@ -62,13 +62,15 @@ class _OrderPageState extends State<OrderPage> {
   }
 
   void _checkAndResetDailyIncome() {
-    final today = DateTime.now().toIso8601String().split('T')[0];
+    final now = DateTime.now();
+    final today = now.toIso8601String().split('T')[0];
+    
     if (today != _todayDate) {
-      // New day, reset today's income
       setState(() {
         _todaysTotalIncome = 0.0;
         _todaysClaims.clear();
         _todayDate = today;
+        _lastDayResetTime = now;
       });
     }
   }
@@ -82,7 +84,7 @@ class _OrderPageState extends State<OrderPage> {
       if (lastClaimTime != null && lastClaimTime.isNotEmpty) {
         try {
           final lastClaim = DateTime.parse(lastClaimTime);
-          final nextClaimTime = lastClaim.add(Duration(hours: 24));
+          final nextClaimTime = lastClaim.add(const Duration(hours: 24));
           final timeRemaining = nextClaimTime.difference(now);
           
           if (timeRemaining.inSeconds > 0) {
@@ -99,7 +101,6 @@ class _OrderPageState extends State<OrderPage> {
     try {
       setState(() => _isLoading = true);
       
-      // Fetch balance
       final balanceData = await ApiService.getBalance(widget.token);
       if (balanceData['success'] == true && mounted) {
         setState(() {
@@ -107,7 +108,6 @@ class _OrderPageState extends State<OrderPage> {
         });
       }
       
-      // Fetch user's investments
       await _loadUserInvestments();
       
     } catch (e) {
@@ -124,17 +124,72 @@ class _OrderPageState extends State<OrderPage> {
     try {
       setState(() => _isApiLoading = true);
       
-      // Use the API method
       final List<Map<String, dynamic>> investments = await ApiService.getUserInvestments(widget.token);
       
-      print('📊 Loaded ${investments.length} investments from API');
+      double tempTotalIncome = 0.0;
+      double tempTotalPotential = 0.0;
       
-      // Update the main list
+      for (var investment in investments) {
+        final totalEarned = _parseDouble(investment['total_income'] ?? 0);
+        if (totalEarned > 0) {
+          tempTotalIncome += totalEarned;
+        }
+        
+        final type = investment['type'];
+        if (type == 'vip') {
+          final dailyAmount = _parseDouble(investment['dailyEarnings'] ?? investment['daily_earnings'] ?? 0);
+          final validityDays = _parseInt(investment['validityDays'] ?? investment['validity_days'] ?? 30);
+          tempTotalPotential += dailyAmount * validityDays;
+        } else if (type == 'main_project') {
+          final dailyAmount = _parseDouble(investment['daily_income'] ?? 0);
+          final units = _parseInt(investment['units'] ?? 1);
+          final cycleDays = _parseInt(investment['cycle_days'] ?? 30);
+          tempTotalPotential += (dailyAmount * units) * cycleDays;
+        }
+      }
+      
+      double todayIncome = 0.0;
+      final now = DateTime.now();
+      final todayStart = DateTime(now.year, now.month, now.day);
+      
+      for (var investment in investments) {
+        final lastClaimTime = investment['last_claim_time']?.toString();
+        if (lastClaimTime != null && lastClaimTime.isNotEmpty) {
+          try {
+            final lastClaim = DateTime.parse(lastClaimTime);
+            if (lastClaim.isAfter(todayStart) || 
+                (lastClaim.year == now.year && 
+                 lastClaim.month == now.month && 
+                 lastClaim.day == now.day)) {
+              
+              final investmentId = investment['id'];
+              final type = investment['type'];
+              double claimAmount = 0;
+              
+              if (type == 'vip') {
+                claimAmount = _parseDouble(investment['dailyEarnings'] ?? investment['daily_earnings'] ?? 0);
+              } else {
+                claimAmount = _parseDouble(investment['daily_income'] ?? 0);
+                final units = _parseInt(investment['units'] ?? 1);
+                claimAmount = claimAmount * units;
+              }
+              
+              _todaysClaims[investmentId] = claimAmount;
+              todayIncome += claimAmount;
+            }
+          } catch (e) {
+            print("Error parsing claim time for today's income: $e");
+          }
+        }
+      }
+      
       setState(() {
         _userInvestments = investments;
+        _totalIncome = tempTotalIncome;
+        _totalPotentialIncome = tempTotalPotential;
+        _todaysTotalIncome = todayIncome;
       });
       
-      // Categorize investments after loading
       _categorizeInvestments();
       
     } catch (e) {
@@ -146,9 +201,6 @@ class _OrderPageState extends State<OrderPage> {
   }
 
   void _categorizeInvestments() {
-    print('🔍 Categorizing ${_userInvestments.length} investments...');
-    
-    // Reset categories
     List<Map<String, dynamic>> active = [];
     List<Map<String, dynamic>> completed = [];
     
@@ -156,8 +208,6 @@ class _OrderPageState extends State<OrderPage> {
     
     for (var investment in _userInvestments) {
       final isActive = _isInvestmentActive(investment, now);
-      
-      print('  - ${investment['title']}: active = $isActive');
       
       if (isActive) {
         active.add(investment);
@@ -171,16 +221,13 @@ class _OrderPageState extends State<OrderPage> {
       _completedInvestments = completed;
     });
     
-    // Update claim timers
     _updateClaimTimers();
-    
-    print('📊 Categorized: ${_activeInvestments.length} active, ${_completedInvestments.length} completed');
   }
 
   bool _isInvestmentActive(Map<String, dynamic> investment, DateTime currentDate) {
     final purchaseDateStr = investment['purchase_date']?.toString();
     if (purchaseDateStr == null || purchaseDateStr.isEmpty) {
-      return true; // Default to active if no purchase date
+      return true;
     }
     
     try {
@@ -188,28 +235,24 @@ class _OrderPageState extends State<OrderPage> {
       final type = investment['type'] ?? 'vip';
       
       if (type == 'vip') {
-        // VIP products: Check validity days
         final validityDays = _parseInt(investment['validityDays'] ?? investment['validity_days'] ?? 0);
-        if (validityDays <= 0) return true; // No expiration if no validity days
+        if (validityDays <= 0) return true;
         
         final expiryDate = purchaseDate.add(Duration(days: validityDays));
         return currentDate.isBefore(expiryDate);
       } else {
-        // Main projects: Check cycle days
         final cycleDays = _parseInt(investment['cycle_days'] ?? 0);
-        if (cycleDays <= 0) return true; // No expiration if no cycle days
+        if (cycleDays <= 0) return true;
         
         final expiryDate = purchaseDate.add(Duration(days: cycleDays));
         return currentDate.isBefore(expiryDate);
       }
     } catch (e) {
-      print("Error checking investment activity: $e");
-      return true; // Default to active on error
+      return true;
     }
   }
 
   bool _canClaimIncome(Map<String, dynamic> investment) {
-    // First check if investment is still active
     if (!_isInvestmentActive(investment, DateTime.now())) {
       return false;
     }
@@ -245,17 +288,13 @@ class _OrderPageState extends State<OrderPage> {
     final timer = _claimTimers[investmentId];
     final isVip = type == 'vip';
     
-    // If investment is not active, show completed state
     if (!isActive) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         decoration: BoxDecoration(
           color: Colors.grey.withOpacity(0.1),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: Colors.grey,
-            width: 1,
-          ),
+          border: Border.all(color: Colors.grey, width: 1),
         ),
         child: const Column(
           mainAxisSize: MainAxisSize.min,
@@ -282,7 +321,6 @@ class _OrderPageState extends State<OrderPage> {
       );
     }
     
-    // Calculate claim amount
     double claimAmount = 0;
     if (isVip) {
       claimAmount = _parseDouble(investment['dailyEarnings'] ?? investment['daily_earnings'] ?? 0);
@@ -293,15 +331,12 @@ class _OrderPageState extends State<OrderPage> {
     }
     
     if (canClaim) {
-      // Claim button - enabled
       return ElevatedButton(
         onPressed: () => _claimSingleIncome(investment),
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFF22C55E),
           foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
           elevation: 2,
         ),
@@ -329,16 +364,12 @@ class _OrderPageState extends State<OrderPage> {
         ),
       );
     } else if (timer != null) {
-      // Countdown timer - disabled with timer
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
           color: Colors.red.withOpacity(0.1),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: Colors.red,
-            width: 1,
-          ),
+          border: Border.all(color: Colors.red, width: 1),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -364,7 +395,6 @@ class _OrderPageState extends State<OrderPage> {
         ),
       );
     } else {
-      // Claimed button - disabled
       final isClaimedToday = _todaysClaims.containsKey(investmentId);
       
       return Container(
@@ -406,17 +436,13 @@ class _OrderPageState extends State<OrderPage> {
   Widget _buildInvestmentItem(Map<String, dynamic> investment) {
     final type = investment['type'] ?? 'vip';
     final isVip = type == 'vip';
-    
-    // Check if investment is active based on date
     final isActive = _isInvestmentActive(investment, DateTime.now());
     
-    // Get data
     final name = investment['title'] ?? 'Investment';
     final price = _parseDouble(investment['price']);
     final purchaseDate = investment['purchase_date']?.toString() ?? '';
     final lastClaimTime = investment['last_claim_time']?.toString();
     
-    // Type-specific fields
     final dailyAmount = isVip 
       ? _parseDouble(investment['dailyEarnings'] ?? 0)
       : _parseDouble(investment['daily_income'] ?? 0);
@@ -433,7 +459,6 @@ class _OrderPageState extends State<OrderPage> {
     final availableUnits = isVip ? 0 : _parseInt(investment['available_units'] ?? 0);
     final image = investment['image']?.toString() ?? '';
     
-    // Calculate expiry date
     DateTime? expiryDate;
     try {
       final purchaseDateTime = DateTime.parse(purchaseDate);
@@ -456,7 +481,6 @@ class _OrderPageState extends State<OrderPage> {
       ),
       child: Column(
         children: [
-          // Header with type badge
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
@@ -509,7 +533,6 @@ class _OrderPageState extends State<OrderPage> {
             ),
           ),
           
-          // Content
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -517,7 +540,6 @@ class _OrderPageState extends State<OrderPage> {
               children: [
                 Row(
                   children: [
-                    // Image
                     Container(
                       width: 60,
                       height: 60,
@@ -532,7 +554,6 @@ class _OrderPageState extends State<OrderPage> {
                     ),
                     const SizedBox(width: 12),
                     
-                    // Details
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -549,17 +570,12 @@ class _OrderPageState extends State<OrderPage> {
                           const SizedBox(height: 4),
                           RichText(
                             text: TextSpan(
-                              style: const TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey,
-                              ),
+                              style: const TextStyle(fontSize: 13, color: Colors.grey),
                               children: [
                                 const TextSpan(text: 'Invested: '),
                                 TextSpan(
                                   text: '${price.toStringAsFixed(0)} Br',
-                                  style: const TextStyle(
-                                    color: Color(0xFFFF8C00),
-                                  ),
+                                  style: const TextStyle(color: Color(0xFFFF8C00)),
                                 ),
                               ],
                             ),
@@ -588,7 +604,6 @@ class _OrderPageState extends State<OrderPage> {
                 
                 const SizedBox(height: 12),
                 
-                // Stats container
                 Container(
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   decoration: BoxDecoration(
@@ -607,7 +622,6 @@ class _OrderPageState extends State<OrderPage> {
                 
                 const SizedBox(height: 12),
                 
-                // Purchase date, expiry date and claim button
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -617,10 +631,7 @@ class _OrderPageState extends State<OrderPage> {
                         children: [
                           Text(
                             'Purchased: ${_formatDate(purchaseDate)}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
-                            ),
+                            style: const TextStyle(fontSize: 12, color: Colors.grey),
                           ),
                           if (expiryDate != null)
                             Text(
@@ -633,19 +644,14 @@ class _OrderPageState extends State<OrderPage> {
                           if (lastClaimTime != null && lastClaimTime.isNotEmpty)
                             Text(
                               'Last claim: ${_formatDate(lastClaimTime)}',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Colors.grey,
-                              ),
+                              style: const TextStyle(fontSize: 11, color: Colors.grey),
                             ),
-                          // Show next claim time if applicable
                           if (isActive && lastClaimTime != null && lastClaimTime.isNotEmpty)
                             _buildNextClaimInfo(investment),
                         ],
                       ),
                     ),
                     
-                    // CLAIM BUTTON HERE
                     _buildClaimButton(investment),
                   ],
                 ),
@@ -660,7 +666,7 @@ class _OrderPageState extends State<OrderPage> {
   Widget _buildNextClaimInfo(Map<String, dynamic> investment) {
     final lastClaimTime = investment['last_claim_time']?.toString();
     if (lastClaimTime == null || lastClaimTime.isEmpty) {
-      return Container();
+      return const SizedBox();
     }
     
     try {
@@ -670,7 +676,7 @@ class _OrderPageState extends State<OrderPage> {
       final timeRemaining = nextClaimTime.difference(now);
       
       if (timeRemaining.inSeconds <= 0) {
-        return Container();
+        return const SizedBox();
       }
       
       return Column(
@@ -679,15 +685,12 @@ class _OrderPageState extends State<OrderPage> {
           const SizedBox(height: 4),
           Text(
             'Next claim: ${_formatDateTime(nextClaimTime)}',
-            style: const TextStyle(
-              fontSize: 11,
-              color: Colors.orange,
-            ),
+            style: const TextStyle(fontSize: 11, color: Colors.orange),
           ),
         ],
       );
     } catch (e) {
-      return Container();
+      return const SizedBox();
     }
   }
 
@@ -705,7 +708,6 @@ class _OrderPageState extends State<OrderPage> {
   }
 
   Widget _buildInvestmentImage(String imagePath, String type) {
-    // Remove double "assets/" prefix if present
     if (imagePath.startsWith('assets/assets/')) {
       imagePath = imagePath.replaceFirst('assets/assets/', 'assets/');
     }
@@ -787,7 +789,6 @@ class _OrderPageState extends State<OrderPage> {
       final type = investment['type'];
       final isVip = type == 'vip';
       
-      // Calculate claim amount
       double claimAmount = 0;
       if (isVip) {
         claimAmount = _parseDouble(investment['dailyEarnings'] ?? investment['daily_earnings'] ?? 0);
@@ -800,26 +801,25 @@ class _OrderPageState extends State<OrderPage> {
       final result = await ApiService.claimInvestmentIncome(widget.token, investmentId, type);
       
       if (result['success'] == true) {
-        // Update investment with new claim time
         final now = DateTime.now();
         investment['last_claim_time'] = now.toIso8601String();
         
-        // Update balance
-        final claimedAmount = _parseDouble(result['amount']);
+        final claimedAmount = _parseDouble(result['amount'] ?? claimAmount);
+        
+        // Update investment's total income (only when actually claimed)
+        final currentTotal = _parseDouble(investment['total_income'] ?? 0);
+        investment['total_income'] = currentTotal + claimedAmount;
+        
+        // Update totals
         setState(() {
           _balance += claimedAmount;
-          // Add to today's total income
-          _todaysTotalIncome += claimedAmount;
-          // Track this investment as claimed today
+          _todaysTotalIncome += claimedAmount; // Add to today's income
+          _totalIncome += claimedAmount; // Add to total lifetime income
           _todaysClaims[investmentId] = claimedAmount;
         });
         
-        // Update claim timers
         _updateClaimTimers();
-        
-        _showMessageText("Successfully claimed ${claimedAmount.toStringAsFixed(2)} Br today!");
-        
-        // Refresh the list
+        _showMessageText("Successfully claimed ${claimedAmount.toStringAsFixed(2)} Br!");
         _categorizeInvestments();
       } else {
         _showMessageText(result['error'] ?? result['message'] ?? "Failed to claim income", isError: true);
@@ -849,7 +849,6 @@ class _OrderPageState extends State<OrderPage> {
       double totalClaimed = 0;
       int successfulClaims = 0;
       
-      // Find investments that can be claimed
       final investmentsToClaim = _activeInvestments.where((inv) => _canClaimIncome(inv)).toList();
       
       if (investmentsToClaim.isEmpty) {
@@ -866,11 +865,24 @@ class _OrderPageState extends State<OrderPage> {
           if (result['success'] == true) {
             final now = DateTime.now();
             investment['last_claim_time'] = now.toIso8601String();
-            final claimedAmount = _parseDouble(result['amount']);
+            
+            double claimAmount = 0;
+            if (type == 'vip') {
+              claimAmount = _parseDouble(investment['dailyEarnings'] ?? investment['daily_earnings'] ?? 0);
+            } else {
+              claimAmount = _parseDouble(investment['daily_income'] ?? 0);
+              final units = _parseInt(investment['units'] ?? 1);
+              claimAmount = claimAmount * units;
+            }
+            
+            final claimedAmount = _parseDouble(result['amount'] ?? claimAmount);
             totalClaimed += claimedAmount;
             successfulClaims++;
             
-            // Track this investment as claimed today
+            // Update investment's total income
+            final currentTotal = _parseDouble(investment['total_income'] ?? 0);
+            investment['total_income'] = currentTotal + claimedAmount;
+            
             _todaysClaims[investmentId] = claimedAmount;
           }
         } catch (e) {
@@ -878,17 +890,16 @@ class _OrderPageState extends State<OrderPage> {
         }
       }
       
-      // Update balance
-      setState(() {
-        _balance += totalClaimed;
-        _todaysTotalIncome += totalClaimed;
-      });
-      
-      // Update claim timers
-      _updateClaimTimers();
-      
+      // Update totals only for successful claims
       if (successfulClaims > 0) {
-        _showMessageText("Successfully claimed ${totalClaimed.toStringAsFixed(2)} Br today from $successfulClaims investments!");
+        setState(() {
+          _balance += totalClaimed;
+          _todaysTotalIncome += totalClaimed;
+          _totalIncome += totalClaimed;
+        });
+        
+        _updateClaimTimers();
+        _showMessageText("Successfully claimed ${totalClaimed.toStringAsFixed(2)} Br from $successfulClaims investments!");
         _categorizeInvestments();
       } else {
         _showMessageText("Failed to claim income", isError: true);
@@ -933,7 +944,6 @@ class _OrderPageState extends State<OrderPage> {
       _showMessage = true;
     });
     
-    // Hide message after 3 seconds
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted) {
         setState(() {
@@ -977,8 +987,483 @@ class _OrderPageState extends State<OrderPage> {
     });
   }
 
+  void _showTodayIncomeDetails() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(20),
+          topRight: Radius.circular(20),
+        ),
+      ),
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    "Today's Income Details",
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 20),
+              
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFFF8C00), Color(0xFFFFA726)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  children: [
+                    const Text(
+                      'Total Claimed Today',
+                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text(
+                          _todaysTotalIncome.toStringAsFixed(0),
+                          style: const TextStyle(
+                            fontSize: 40,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Br',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '${_todaysClaims.length} investments claimed • ${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}',
+                      style: const TextStyle(color: Colors.white70, fontSize: 14),
+                    ),
+                  ],
+                ),
+              ),
+              
+              const SizedBox(height: 20),
+              
+              if (_todaysClaims.isEmpty)
+                const Column(
+                  children: [
+                    Icon(Icons.money_off, color: Colors.grey, size: 48),
+                    SizedBox(height: 12),
+                    Text(
+                      'No claims made today',
+                      style: TextStyle(color: Colors.grey, fontSize: 16),
+                    ),
+                  ],
+                )
+              else
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Breakdown',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 12),
+                    ..._userInvestments.where((inv) => _todaysClaims.containsKey(inv['id'])).map((investment) {
+                      final amount = _todaysClaims[investment['id']] ?? 0;
+                      final type = investment['type'];
+                      final isVip = type == 'vip';
+                      
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[50],
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey[200]!),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: isVip ? const Color(0xFF8B5CF6).withOpacity(0.1) : const Color(0xFFFF8C00).withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(
+                                isVip ? Icons.star : Icons.ev_station,
+                                color: isVip ? const Color(0xFF8B5CF6) : const Color(0xFFFF8C00),
+                                size: 20,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    investment['title'] ?? 'Investment',
+                                    style: const TextStyle(fontWeight: FontWeight.w500),
+                                  ),
+                                  Text(
+                                    isVip ? 'VIP Product' : 'Main Project',
+                                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  '${amount.toStringAsFixed(0)} Br',
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF22C55E),
+                                  ),
+                                ),
+                                Text(
+                                  'claimed',
+                                  style: TextStyle(color: Colors.grey[600], fontSize: 11),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ],
+                ),
+              
+              const SizedBox(height: 20),
+              
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFF8C00),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showTotalIncomeDetails() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(20),
+          topRight: Radius.circular(20),
+        ),
+      ),
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Total Income Details',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 20),
+              
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF8B5CF6), Color(0xFF7C3AED)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  children: [
+                    const Text(
+                      'Total Income Earned',
+                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text(
+                          _totalIncome.toStringAsFixed(0),
+                          style: const TextStyle(
+                            fontSize: 40,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Br',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Cumulative earnings from all time',
+                      style: TextStyle(color: Colors.white70, fontSize: 14),
+                    ),
+                  ],
+                ),
+              ),
+              
+              const SizedBox(height: 20),
+              
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.grey[50],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Progress',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                        ),
+                        Text(
+                          '${((_totalPotentialIncome > 0 ? _totalIncome / _totalPotentialIncome : 0) * 100).toStringAsFixed(1)}%',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF8B5CF6),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    LinearProgressIndicator(
+                      value: _totalPotentialIncome > 0 
+                          ? _totalIncome / _totalPotentialIncome 
+                          : 0,
+                      backgroundColor: Colors.grey[300],
+                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFF8C00)),
+                      minHeight: 10,
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '${_totalIncome.toStringAsFixed(0)} Br earned',
+                          style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                        Text(
+                          '${_totalPotentialIncome.toStringAsFixed(0)} Br potential',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              
+              const SizedBox(height: 20),
+              
+              if (_userInvestments.isEmpty)
+                const Column(
+                  children: [
+                    Icon(Icons.trending_flat, color: Colors.grey, size: 48),
+                    SizedBox(height: 12),
+                    Text(
+                      'No investments',
+                      style: TextStyle(color: Colors.grey, fontSize: 16),
+                    ),
+                  ],
+                )
+              else
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Earnings by Investment',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 12),
+                    ..._userInvestments.map((investment) {
+                      final type = investment['type'];
+                      final isVip = type == 'vip';
+                      final totalEarned = _parseDouble(investment['total_income'] ?? 0);
+                      
+                      // Calculate potential
+                      double potential = 0;
+                      if (isVip) {
+                        final dailyAmount = _parseDouble(investment['dailyEarnings'] ?? investment['daily_earnings'] ?? 0);
+                        final validityDays = _parseInt(investment['validityDays'] ?? investment['validity_days'] ?? 30);
+                        potential = dailyAmount * validityDays;
+                      } else {
+                        final dailyAmount = _parseDouble(investment['daily_income'] ?? 0);
+                        final units = _parseInt(investment['units'] ?? 1);
+                        final cycleDays = _parseInt(investment['cycle_days'] ?? 30);
+                        potential = (dailyAmount * units) * cycleDays;
+                      }
+                      
+                      final percentage = potential > 0 ? (totalEarned / potential) * 100 : 0;
+                      
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[50],
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey[200]!),
+                        ),
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    color: isVip ? const Color(0xFF8B5CF6).withOpacity(0.1) : const Color(0xFFFF8C00).withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Icon(
+                                    isVip ? Icons.star : Icons.ev_station,
+                                    color: isVip ? const Color(0xFF8B5CF6) : const Color(0xFFFF8C00),
+                                    size: 20,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        investment['title'] ?? 'Investment',
+                                        style: const TextStyle(fontWeight: FontWeight.w500),
+                                      ),
+                                      Text(
+                                        isVip ? 'VIP Product' : 'Main Project',
+                                        style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      '${totalEarned.toStringAsFixed(0)} Br',
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF8B5CF6),
+                                      ),
+                                    ),
+                                    Text(
+                                      '${percentage.toStringAsFixed(1)}%',
+                                      style: TextStyle(color: Colors.grey[600], fontSize: 11),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            LinearProgressIndicator(
+                              value: potential > 0 ? totalEarned / potential : 0,
+                              backgroundColor: Colors.grey[300],
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                isVip ? const Color(0xFF8B5CF6) : const Color(0xFFFF8C00),
+                              ),
+                              minHeight: 6,
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ],
+                ),
+              
+              const SizedBox(height: 20),
+              
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF8B5CF6),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isDesktop = screenWidth > 600;
+    
     if (_isLoading) {
       return Scaffold(
         backgroundColor: const Color(0xFFF5F5F7),
@@ -1009,134 +1494,143 @@ class _OrderPageState extends State<OrderPage> {
     final totalInvested = _calculateTotalInvested();
     final canClaimAny = _activeInvestments.any((inv) => _canClaimIncome(inv));
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F7),
-      body: Stack(
+    // Main content widget
+    Widget content = SingleChildScrollView(
+      child: Column(
         children: [
-          SingleChildScrollView(
-            child: Column(
+          // Header
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(16, 50, 16, 30),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Color(0xFF8B5CF6),
+                  Color(0xFF7C3AED),
+                  Color(0xFF6D28D9),
+                ],
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.fromLTRB(16, 50, 16, 30),
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        Color(0xFF8B5CF6),
-                        Color(0xFF7C3AED),
-                        Color(0xFF6D28D9),
-                      ],
+                IconButton(
+                  icon: const Icon(Icons.arrow_back, color: Colors.white),
+                  onPressed: () => Navigator.pop(context),
+                ),
+                const Expanded(
+                  child: Text(
+                    'My Investments',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
                     ),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.arrow_back, color: Colors.white),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                      const Expanded(
-                        child: Text(
-                          'My Investments',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.refresh, color: Colors.white),
-                        onPressed: _loadData,
-                      ),
-                    ],
                   ),
                 ),
+                IconButton(
+                  icon: const Icon(Icons.refresh, color: Colors.white),
+                  onPressed: _loadData,
+                ),
+              ],
+            ),
+          ),
 
-                // Message Banner
-                if (_showMessage)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    color: _messageColor.withOpacity(0.1),
-                    child: Row(
-                      children: [
-                        Icon(
-                          _messageColor == Colors.red ? Icons.error : Icons.check_circle,
-                          color: _messageColor,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _message,
-                            style: TextStyle(
-                              color: _messageColor,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          icon: Icon(Icons.close, color: _messageColor, size: 18),
-                          onPressed: () {
-                            setState(() {
-                              _showMessage = false;
-                            });
-                          },
-                        ),
-                      ],
+          // Message Banner
+          if (_showMessage)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              color: _messageColor.withOpacity(0.1),
+              child: Row(
+                children: [
+                  Icon(
+                    _messageColor == Colors.red ? Icons.error : Icons.check_circle,
+                    color: _messageColor,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _message,
+                      style: TextStyle(
+                        color: _messageColor,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      textAlign: TextAlign.center,
                     ),
                   ),
+                  IconButton(
+                    icon: Icon(Icons.close, color: _messageColor, size: 18),
+                    onPressed: () {
+                      setState(() {
+                        _showMessage = false;
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ),
 
-                // Today's Income Card
-                Transform.translate(
-                  offset:  Offset(0, _showMessage ? -8 : -16),
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 16),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [
-                          Color(0xFFFF8C00),
-                          Color(0xFFFFA726),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.12),
-                          blurRadius: 20,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
+          // Balance Card
+          Transform.translate(
+            offset: Offset(0, _showMessage ? -8 : -16),
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.12),
+                    blurRadius: 20,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const Text(
-                              "Today's Income",
+                              'Available Balance',
                               style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
+                                color: Colors.grey,
+                                fontSize: 14,
                               ),
+                              textAlign: TextAlign.center,
                             ),
                             const SizedBox(height: 8),
                             Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
+                                GestureDetector(
+                                  onTap: () {
+                                    setState(() {
+                                      _balanceVisible = !_balanceVisible;
+                                    });
+                                  },
+                                  child: Icon(
+                                    _balanceVisible ? Icons.visibility : Icons.visibility_off,
+                                    color: Colors.grey[600],
+                                    size: 20,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
                                 Text(
-                                  _todaysTotalIncome.toStringAsFixed(0),
+                                  _balanceVisible ? _balance.toStringAsFixed(0) : '*****',
                                   style: const TextStyle(
                                     fontSize: 28,
                                     fontWeight: FontWeight.bold,
-                                    color: Colors.white,
+                                    color: Colors.black,
                                   ),
                                 ),
                                 const Padding(
@@ -1146,317 +1640,463 @@ class _OrderPageState extends State<OrderPage> {
                                     style: TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.w600,
-                                      color: Colors.white,
+                                      color: Color(0xFFFF8C00),
                                     ),
                                   ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 4),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  
+                  if (_activeInvestments.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 16),
+                      child: ElevatedButton(
+                        onPressed: canClaimAny && !_isProcessing ? _claimAllIncome : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: canClaimAny ? const Color(0xFF22C55E) : Colors.grey,
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size(double.infinity, 44),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: _isProcessing
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.bolt, size: 18),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'CLAIM ALL (${_totalDailyEarnings.toStringAsFixed(0)} Br)',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // INCOME CARDS SECTION
+          Row(
+            children: [
+              // Today's Income Card
+              Expanded(
+                child: GestureDetector(
+                  onTap: _showTodayIncomeDetails,
+                  child: Container(
+                    margin: const EdgeInsets.only(left: 16, right: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFFF8C00), Color(0xFFFFA726)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.08),
+                          blurRadius: 10,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.2),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.today,
+                                color: Colors.white,
+                                size: 14,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            const Expanded(
+                              child: Text(
+                                "Today's Income",
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                            const Icon(
+                              Icons.arrow_forward_ios,
+                              color: Colors.white70,
+                              size: 12,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
                             Text(
-                              'Claimed today • ${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}',
+                              _todaysTotalIncome.toStringAsFixed(0),
                               style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 12,
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const Padding(
+                              padding: EdgeInsets.only(bottom: 2, left: 2),
+                              child: Text(
+                                'Br',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
                               ),
                             ),
                           ],
                         ),
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
-                            shape: BoxShape.circle,
+                        const SizedBox(height: 4),
+                        Text(
+                          '${_todaysClaims.length} claimed',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 10,
                           ),
-                          child: const Icon(
-                            Icons.attach_money,
-                            color: Colors.white,
-                            size: 30,
-                          ),
+                          textAlign: TextAlign.center,
                         ),
                       ],
                     ),
                   ),
                 ),
-
-                const SizedBox(height: 16),
-
-                // Balance Card
-                Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 16),
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.08),
-                        blurRadius: 20,
-                        offset:  Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Balance section
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Available Balance',
-                                  style: TextStyle(
-                                    color: Colors.grey,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    GestureDetector(
-                                      onTap: () {
-                                        setState(() {
-                                          _balanceVisible = !_balanceVisible;
-                                        });
-                                      },
-                                      child: Icon(
-                                        _balanceVisible ? Icons.visibility : Icons.visibility_off,
-                                        color: Colors.grey[600],
-                                        size: 20,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      _balanceVisible ? _balance.toStringAsFixed(0) : '*****',
-                                      style: const TextStyle(
-                                        fontSize: 28,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.black,
-                                      ),
-                                    ),
-                                    const Padding(
-                                      padding: EdgeInsets.only(bottom: 4, left: 4),
-                                      child: Text(
-                                        'Br',
-                                        style: TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.w600,
-                                          color: Color(0xFFFF8C00),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      
-                      // Claim All Button
-                      if (_activeInvestments.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 16),
-                          child: ElevatedButton(
-                            onPressed: canClaimAny && !_isProcessing ? _claimAllIncome : null,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: canClaimAny ? const Color(0xFF22C55E) : Colors.grey,
-                              foregroundColor: Colors.white,
-                              minimumSize: const Size(double.infinity, 44),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            child: _isProcessing
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      color: Colors.white,
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Icon(Icons.bolt, size: 18),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'CLAIM ALL (${_totalDailyEarnings.toStringAsFixed(0)} Br)',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-
-                // Quick Stats
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _statItem(Icons.trending_up, 'Daily', '${_totalDailyEarnings.toStringAsFixed(0)} Br'),
-                      _statItem(Icons.assignment_turned_in, 'Active', '${_activeInvestments.length}'),
-                      _statItem(Icons.check_circle, 'Completed', '${_completedInvestments.length}'),
-                      _statItem(Icons.attach_money, 'Invested', '${totalInvested.toStringAsFixed(0)} Br'),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 8),
-
-                // Tabs
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () => setState(() => _selectedTab = 0),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              color: _selectedTab == 0 ? const Color(0xFF8B5CF6) : Colors.transparent,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: _selectedTab == 0 ? const Color(0xFF8B5CF6) : Colors.grey[300]!,
-                              ),
-                            ),
-                            child: Center(
-                              child: Text(
-                                'All (${_userInvestments.length})',
-                                style: TextStyle(
-                                  color: _selectedTab == 0 ? Colors.white : Colors.grey[700],
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () => setState(() => _selectedTab = 1),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              color: _selectedTab == 1 ? const Color(0xFF8B5CF6) : Colors.transparent,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: _selectedTab == 1 ? const Color(0xFF8B5CF6) : Colors.grey[300]!,
-                              ),
-                            ),
-                            child: Center(
-                              child: Text(
-                                'Active (${_activeInvestments.length})',
-                                style: TextStyle(
-                                  color: _selectedTab == 1 ? Colors.white : Colors.grey[700],
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () => setState(() => _selectedTab = 2),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              color: _selectedTab == 2 ? const Color(0xFF8B5CF6) : Colors.transparent,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: _selectedTab == 2 ? const Color(0xFF8B5CF6) : Colors.grey[300]!,
-                              ),
-                            ),
-                            child: Center(
-                              child: Text(
-                                'Completed (${_completedInvestments.length})',
-                                style: TextStyle(
-                                  color: _selectedTab == 2 ? Colors.white : Colors.grey[700],
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-
-                // Investments List
-                if (currentInvestments.isEmpty)
-                  Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 16),
-                    padding: const EdgeInsets.all(20),
+              ),
+              
+              // Total Income Card
+              Expanded(
+                child: GestureDetector(
+                  onTap: _showTotalIncomeDetails,
+                  child: Container(
+                    margin: const EdgeInsets.only(left: 8, right: 16),
+                    padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF8B5CF6), Color(0xFF7C3AED)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.06),
-                          blurRadius: 12,
+                          color: Colors.black.withOpacity(0.08),
+                          blurRadius: 10,
+                          offset: const Offset(0, 2),
                         ),
                       ],
                     ),
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        Icon(
-                          _selectedTab == 1 ? Icons.shopping_bag_outlined : 
-                          _selectedTab == 2 ? Icons.check_circle_outlined : Icons.inventory_outlined,
-                          size: 48,
-                          color: Colors.grey,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          _selectedTab == 0 ? 'No investments yet' :
-                          _selectedTab == 1 ? 'No active investments' : 'No completed investments',
-                          style: const TextStyle(
-                            color: Colors.grey,
-                            fontSize: 14,
-                          ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.2),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.timeline,
+                                color: Colors.white,
+                                size: 14,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            const Expanded(
+                              child: Text(
+                                "Total Income",
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                            const Icon(
+                              Icons.arrow_forward_ios,
+                              color: Colors.white70,
+                              size: 12,
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 8),
-                        ElevatedButton(
-                          onPressed: () => Navigator.pop(context),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF8B5CF6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              _totalIncome.toStringAsFixed(0),
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const Padding(
+                              padding: EdgeInsets.only(bottom: 2, left: 2),
+                              child: Text(
+                                'Br',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Container(
+                          height: 4,
+                          margin: const EdgeInsets.symmetric(horizontal: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(2),
                           ),
-                          child: const Text('Browse Investments'),
+                          child: FractionallySizedBox(
+                            alignment: Alignment.centerLeft,
+                            widthFactor: _totalPotentialIncome > 0 
+                                ? _totalIncome / _totalPotentialIncome 
+                                : 0,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${((_totalPotentialIncome > 0 ? _totalIncome / _totalPotentialIncome : 0) * 100).toStringAsFixed(1)}% of potential',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 9,
+                          ),
+                          textAlign: TextAlign.center,
                         ),
                       ],
                     ),
-                  )
-                else
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Column(
-                      children: currentInvestments.map(_buildInvestmentItem).toList(),
-                    ),
                   ),
+                ),
+              ),
+            ],
+          ),
 
-                const SizedBox(height: 100),
+          const SizedBox(height: 16),
+
+          // Quick Stats
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _statItem(Icons.trending_up, 'Daily', '${_totalDailyEarnings.toStringAsFixed(0)} Br'),
+                _statItem(Icons.assignment_turned_in, 'Active', '${_activeInvestments.length}'),
+                _statItem(Icons.check_circle, 'Completed', '${_completedInvestments.length}'),
+                _statItem(Icons.attach_money, 'Invested', '${totalInvested.toStringAsFixed(0)} Br'),
               ],
             ),
           ),
+
+          const SizedBox(height: 8),
+
+          // Tabs
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _selectedTab = 0),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: _selectedTab == 0 ? const Color(0xFF8B5CF6) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _selectedTab == 0 ? const Color(0xFF8B5CF6) : Colors.grey[300]!,
+                        ),
+                      ),
+                      child: Center(
+                        child: Text(
+                          'All (${_userInvestments.length})',
+                          style: TextStyle(
+                            color: _selectedTab == 0 ? Colors.white : Colors.grey[700],
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _selectedTab = 1),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: _selectedTab == 1 ? const Color(0xFF8B5CF6) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _selectedTab == 1 ? const Color(0xFF8B5CF6) : Colors.grey[300]!,
+                        ),
+                      ),
+                      child: Center(
+                        child: Text(
+                          'Active (${_activeInvestments.length})',
+                          style: TextStyle(
+                            color: _selectedTab == 1 ? Colors.white : Colors.grey[700],
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _selectedTab = 2),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: _selectedTab == 2 ? const Color(0xFF8B5CF6) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _selectedTab == 2 ? const Color(0xFF8B5CF6) : Colors.grey[300]!,
+                        ),
+                      ),
+                      child: Center(
+                        child: Text(
+                          'Completed (${_completedInvestments.length})',
+                          style: TextStyle(
+                            color: _selectedTab == 2 ? Colors.white : Colors.grey[700],
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Investments List
+          if (currentInvestments.isEmpty)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.06),
+                    blurRadius: 12,
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  Icon(
+                    _selectedTab == 1 ? Icons.shopping_bag_outlined : 
+                    _selectedTab == 2 ? Icons.check_circle_outlined : Icons.inventory_outlined,
+                    size: 48,
+                    color: Colors.grey,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    _selectedTab == 0 ? 'No investments yet' :
+                    _selectedTab == 1 ? 'No active investments' : 'No completed investments',
+                    style: const TextStyle(
+                      color: Colors.grey,
+                      fontSize: 14,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF8B5CF6),
+                    ),
+                    child: const Text('Browse Investments'),
+                  ),
+                ],
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                children: currentInvestments.map(_buildInvestmentItem).toList(),
+              ),
+            ),
+
+          const SizedBox(height: 100),
+        ],
+      ),
+    );
+
+    // Wrap with Center and max width for desktop
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F5F7),
+      body: Stack(
+        children: [
+          if (isDesktop)
+            Center(
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 600),
+                child: content,
+              ),
+            )
+          else
+            content,
           
           // API Loading Overlay
           if (_isApiLoading)
@@ -1516,6 +2156,7 @@ class _OrderPageState extends State<OrderPage> {
           fontSize: 12,
           fontWeight: FontWeight.w500,
         ),
+        textAlign: TextAlign.center,
       ),
       const SizedBox(height: 4),
       Text(
@@ -1525,6 +2166,7 @@ class _OrderPageState extends State<OrderPage> {
           color: Color(0xFF333333),
           fontWeight: FontWeight.bold,
         ),
+        textAlign: TextAlign.center,
       ),
     ],
   );

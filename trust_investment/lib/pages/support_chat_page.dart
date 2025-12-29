@@ -8,7 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
-import 'package:google_fonts/google_fonts.dart'; // ADD THIS IMPORT
+import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -42,6 +42,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
   Timer? _typingTimer;
   bool _isSupportTyping = false;
   File? _imageFile;
+  Timer? _refreshTimer;
 
   // Flower wave colors
   static const List<Color> _flowerColors = [
@@ -58,18 +59,20 @@ class _SupportChatPageState extends State<SupportChatPage> {
     super.initState();
     _loadChatHistory();
     _startSupportTypingSimulation();
+    _startAutoRefresh();
   }
 
   @override
   void dispose() {
     _typingTimer?.cancel();
+    _refreshTimer?.cancel();
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
   void _startSupportTypingSimulation() {
-    _typingTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+    _typingTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
       if (_messages.isNotEmpty && Random().nextDouble() < 0.3) {
         setState(() {
           _isSupportTyping = true;
@@ -85,19 +88,118 @@ class _SupportChatPageState extends State<SupportChatPage> {
     });
   }
 
+  void _startAutoRefresh() {
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (mounted && !_isSending) {
+        _syncWithServer();
+      }
+    });
+  }
+
+  Future<void> _syncWithServer() async {
+    try {
+      final chatHistory = await ApiService.fetchChatHistory(token: widget.token);
+      if (chatHistory.isNotEmpty) {
+        // Merge server messages with local messages
+        await _mergeMessages(chatHistory);
+      }
+    } catch (e) {
+      print("❌ Sync error: $e");
+    }
+  }
+
+  Future<void> _mergeMessages(List<Map<String, dynamic>> serverMessages) async {
+    try {
+      // Load local messages
+      final prefs = await SharedPreferences.getInstance();
+      final messagesJson = prefs.getString('chat_messages_${widget.token}') ?? '[]';
+      final List<dynamic> localMessages = json.decode(messagesJson);
+      
+      // Create a map of local messages by server_id for easy lookup
+      final Map<String, dynamic> localMessagesMap = {};
+      for (final msg in localMessages) {
+        final serverId = msg['server_id']?.toString();
+        if (serverId != null && serverId.isNotEmpty) {
+          localMessagesMap[serverId] = msg;
+        }
+      }
+      
+      // Merge server messages with local
+      final List<Map<String, dynamic>> mergedMessages = [];
+      
+      for (final serverMsg in serverMessages) {
+        final serverId = serverMsg['server_id']?.toString() ?? '';
+        final localMsg = serverId.isNotEmpty ? localMessagesMap[serverId] : null;
+        
+        if (localMsg != null) {
+          // Use local message (keeps local status like is_sent, is_error)
+          mergedMessages.add({
+            ...localMsg,
+            'timestamp': DateTime.parse(localMsg['timestamp']),
+          });
+          // Remove from map so we know it's been processed
+          localMessagesMap.remove(serverId);
+        } else {
+          // New message from server
+          mergedMessages.add({
+            ...serverMsg,
+            'is_sent': true,
+            'is_error': false,
+          });
+        }
+      }
+      
+      // Add any remaining local messages (not on server yet)
+      for (final localMsg in localMessagesMap.values) {
+        mergedMessages.add({
+          ...localMsg,
+          'timestamp': DateTime.parse(localMsg['timestamp']),
+        });
+      }
+      
+      // Sort by timestamp
+      mergedMessages.sort((a, b) => (a['timestamp'] as DateTime).compareTo(b['timestamp'] as DateTime));
+      
+      // Update UI if needed
+      if (_messages.length != mergedMessages.length || 
+          !_areMessagesEqual(_messages, mergedMessages)) {
+        setState(() {
+          _messages = mergedMessages;
+        });
+        
+        // Save merged messages to local storage
+        await _saveAllMessagesLocally(mergedMessages);
+      }
+      
+    } catch (e) {
+      print("❌ Merge error: $e");
+    }
+  }
+
+  bool _areMessagesEqual(List<Map<String, dynamic>> list1, List<Map<String, dynamic>> list2) {
+    if (list1.length != list2.length) return false;
+    for (int i = 0; i < list1.length; i++) {
+      if (list1[i]['id'] != list2[i]['id'] ||
+          list1[i]['content'] != list2[i]['content'] ||
+          list1[i]['is_sent'] != list2[i]['is_sent']) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   Future<void> _loadChatHistory() async {
     setState(() {
       _isLoading = true;
     });
 
-    // Try to load from local storage first
     try {
+      // Try to load from local storage first
       final prefs = await SharedPreferences.getInstance();
       final messagesJson = prefs.getString('chat_messages_${widget.token}') ?? '[]';
       final List<dynamic> localMessages = json.decode(messagesJson);
       
       if (localMessages.isNotEmpty) {
-        // Convert to proper format
         final List<Map<String, dynamic>> messages = localMessages.map((msg) {
           return {
             'id': msg['id']?.toString() ?? '',
@@ -112,10 +214,11 @@ class _SupportChatPageState extends State<SupportChatPage> {
             'is_sent': msg['is_sent'] ?? true,
             'is_error': msg['is_error'] ?? false,
             'server_id': msg['server_id'],
+            'error_message': msg['error_message'],
           };
         }).toList();
         
-        // Sort messages by timestamp (oldest first for proper display)
+        // Sort messages by timestamp
         messages.sort((a, b) => (a['timestamp'] as DateTime).compareTo(b['timestamp'] as DateTime));
         
         setState(() {
@@ -130,6 +233,8 @@ class _SupportChatPageState extends State<SupportChatPage> {
           _scrollToBottom();
         });
         
+        // Sync with server in background
+        _syncWithServer();
         return;
       }
     } catch (e) {
@@ -140,7 +245,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
     try {
       final chatHistory = await ApiService.fetchChatHistory(token: widget.token);
       if (chatHistory.isNotEmpty) {
-        // Sort messages by timestamp (oldest first)
+        // Sort messages by timestamp
         chatHistory.sort((a, b) => (a['timestamp'] as DateTime).compareTo(b['timestamp'] as DateTime));
         
         setState(() {
@@ -167,43 +272,18 @@ class _SupportChatPageState extends State<SupportChatPage> {
       }
     } catch (e) {
       print("❌ Chat history API error: $e");
-      
-      // If API fails, show empty chat with welcome message
-      final welcomeMessage = {
-        'id': '1',
-        'content': 'Hello! 👋 How can I help you today?',
-        'sender': 'support',
-        'timestamp': DateTime.now(),
-        'type': 'text',
-        'is_sent': true,
-        'is_error': false,
-      };
-      
-      setState(() {
-        _messages = [welcomeMessage];
-        _isLoading = false;
-      });
-      
-      // Save welcome message locally
-      await _saveAllMessagesLocally([welcomeMessage]);
-      
-      // Scroll to bottom after loading
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollToBottom();
-      });
-      
-      return;
     }
 
-    // If API returns empty, show welcome message
+    // If both local and API fail, show welcome message
     final welcomeMessage = {
-      'id': '1',
+      'id': 'welcome_1',
       'content': 'Hello! 👋 How can I help you today?',
       'sender': 'support',
       'timestamp': DateTime.now(),
       'type': 'text',
       'is_sent': true,
       'is_error': false,
+      'server_id': '',
     };
     
     setState(() {
@@ -247,10 +327,11 @@ class _SupportChatPageState extends State<SupportChatPage> {
       'type': 'text',
       'is_sent': false,
       'is_error': false,
+      'server_id': '',
     };
 
     setState(() {
-      _messages.add(userMessage); // Add to end (most recent)
+      _messages.add(userMessage);
       _messageController.clear();
       _isSending = true;
     });
@@ -277,12 +358,17 @@ class _SupportChatPageState extends State<SupportChatPage> {
       if (result['success'] == true) {
         print("✅ Message sent successfully via API");
         
+        // Get the server ID from response
+        final serverId = result['message_id']?.toString() ?? 
+                        result['data']?['id']?.toString() ?? 
+                        '';
+        
         // Update message status
         if (messageIndex != -1) {
           final updatedMessage = {
             ..._messages[messageIndex],
             'is_sent': true,
-            'server_id': result['message_id'] ?? result['id'] ?? '',
+            'server_id': serverId,
           };
           
           setState(() {
@@ -293,37 +379,10 @@ class _SupportChatPageState extends State<SupportChatPage> {
           await _updateMessageLocally(updatedMessage);
         }
         
-        // Get real support response from API if available
-        if (result.containsKey('support_response') && result['support_response'] != null) {
-          final supportResponse = result['support_response']?.toString() ?? _getSupportResponse(message);
-          
-          final supportMessageId = DateTime.now().millisecondsSinceEpoch;
-          final supportMessage = {
-            'id': 'support_$supportMessageId',
-            'content': supportResponse,
-            'sender': 'support',
-            'timestamp': DateTime.now(),
-            'type': 'text',
-            'is_sent': true,
-            'is_error': false,
-          };
-
-          setState(() {
-            _messages.add(supportMessage);
-            _isSending = false;
-          });
-
-          // Save support response locally
-          await _saveMessageLocally(supportMessage);
-
-          // Scroll to show new message
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _scrollToBottom();
-          });
-        } else {
-          // No support response from API, just stop sending indicator
-          setState(() {
-            _isSending = false;
+        // Auto-refresh chat history after sending
+        if (serverId.isNotEmpty) {
+          Future.delayed(const Duration(seconds: 1), () {
+            _syncWithServer();
           });
         }
         
@@ -340,7 +399,6 @@ class _SupportChatPageState extends State<SupportChatPage> {
           
           setState(() {
             _messages[messageIndex] = errorMessage;
-            _isSending = false;
           });
           
           // Update in local storage
@@ -355,35 +413,22 @@ class _SupportChatPageState extends State<SupportChatPage> {
         final errorMessage = {
           ..._messages[messageIndex],
           'is_error': true,
-          'error_message': 'Network error',
+          'error_message': 'Network error: $e',
         };
         
         setState(() {
           _messages[messageIndex] = errorMessage;
-          _isSending = false;
         });
         
         // Update in local storage
         await _updateMessageLocally(errorMessage);
       }
-    }
-  }
-
-  String _getSupportResponse(String userMessage) {
-    final lowerMessage = userMessage.toLowerCase();
-    
-    if (lowerMessage.contains('deposit') || lowerMessage.contains('recharge')) {
-      return 'For deposits, please use the deposit section in the app. Minimum deposit is 10 Br. Would you like me to guide you through the process? 💰';
-    } else if (lowerMessage.contains('balance')) {
-      return 'You can check your current balance from the wallet section. Your funds are safe with us! 💳';
-    } else if (lowerMessage.contains('help') || lowerMessage.contains('support')) {
-      return 'I\'m here to help! Please describe your issue and I\'ll assist you immediately. 🤝';
-    } else if (lowerMessage.contains('thank')) {
-      return 'You\'re welcome! 😊 Is there anything else I can help you with today?';
-    } else if (lowerMessage.contains('hello') || lowerMessage.contains('hi')) {
-      return 'Hello! Welcome to our support chat. How can I assist you today? 👋';
-    } else {
-      return 'Thank you for your message. Our support team will review your query and get back to you shortly. In the meantime, you can check our FAQ section for quick answers. 📚';
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSending = false;
+        });
+      }
     }
   }
 
@@ -415,10 +460,11 @@ class _SupportChatPageState extends State<SupportChatPage> {
         'type': 'image',
         'is_sent': false,
         'is_error': false,
+        'server_id': '',
       };
 
       setState(() {
-        _messages.add(imageMessage); // Add to end (most recent)
+        _messages.add(imageMessage);
       });
 
       // Save image message locally
@@ -433,7 +479,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
         // Try to send image via REAL API
         final result = await ApiService.sendMessage(
           token: widget.token,
-          message: '📸 Image', // You might need a different API endpoint for images
+          message: '📸 Image',
           sender: 'user',
         );
 
@@ -441,9 +487,14 @@ class _SupportChatPageState extends State<SupportChatPage> {
           // Update message status to sent
           final messageIndex = _messages.indexWhere((msg) => msg['id'] == 'image_$messageId');
           if (messageIndex != -1) {
+            final serverId = result['message_id']?.toString() ?? 
+                            result['data']?['id']?.toString() ?? 
+                            '';
+            
             final updatedMessage = {
               ..._messages[messageIndex],
               'is_sent': true,
+              'server_id': serverId,
             };
             
             setState(() {
@@ -459,9 +510,21 @@ class _SupportChatPageState extends State<SupportChatPage> {
     }
   }
 
-  // Add message deletion function
-  Future<void> _deleteMessage(String messageId) async {
+  Future<void> _deleteMessage(String messageId, {String? serverId}) async {
     try {
+      // Try to delete from server if we have a server ID
+      if (serverId != null && serverId.isNotEmpty) {
+        final result = await ApiService.deleteMessage(
+          token: widget.token,
+          messageId: serverId,
+        );
+        
+        if (result['success'] != true) {
+          print("⚠️ Server delete failed: ${result['message']}");
+        }
+      }
+      
+      // Delete from local storage
       final prefs = await SharedPreferences.getInstance();
       final messagesJson = prefs.getString('chat_messages_${widget.token}') ?? '[]';
       final List<dynamic> messages = json.decode(messagesJson);
@@ -482,7 +545,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
         SnackBar(
           content: Text(
             'Message deleted',
-            style: GoogleFonts.poppins(), // FIXED
+            style: GoogleFonts.poppins(),
           ),
         ),
       );
@@ -491,8 +554,8 @@ class _SupportChatPageState extends State<SupportChatPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Error deleting message: $e',
-            style: GoogleFonts.poppins(), // FIXED
+            'Error deleting message',
+            style: GoogleFonts.poppins(),
           ),
         ),
       );
@@ -506,7 +569,6 @@ class _SupportChatPageState extends State<SupportChatPage> {
       final messagesJson = prefs.getString('chat_messages_${widget.token}') ?? '[]';
       final List<dynamic> messages = json.decode(messagesJson);
       
-      // Add new message
       messages.add({
         'id': message['id'],
         'content': message['content'],
@@ -519,7 +581,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
         'type': message['type'] ?? 'text',
         'is_sent': message['is_sent'] ?? false,
         'is_error': message['is_error'] ?? false,
-        'server_id': message['server_id'],
+        'server_id': message['server_id'] ?? '',
         'error_message': message['error_message'],
       });
       
@@ -538,7 +600,6 @@ class _SupportChatPageState extends State<SupportChatPage> {
       final messagesJson = prefs.getString('chat_messages_${widget.token}') ?? '[]';
       final List<dynamic> messages = json.decode(messagesJson);
       
-      // Find and update the message
       final index = messages.indexWhere((msg) => msg['id'] == message['id']);
       if (index != -1) {
         messages[index] = {
@@ -553,7 +614,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
           'type': message['type'] ?? 'text',
           'is_sent': message['is_sent'] ?? false,
           'is_error': message['is_error'] ?? false,
-          'server_id': message['server_id'],
+          'server_id': message['server_id'] ?? '',
           'error_message': message['error_message'],
         };
         
@@ -581,7 +642,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
           'type': msg['type'] ?? 'text',
           'is_sent': msg['is_sent'] ?? true,
           'is_error': msg['is_error'] ?? false,
-          'server_id': msg['server_id'],
+          'server_id': msg['server_id'] ?? '',
           'error_message': msg['error_message'],
         };
       }).toList();
@@ -675,7 +736,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
                             padding: const EdgeInsets.only(bottom: 4),
                             child: Text(
                               'Support Agent',
-                              style: GoogleFonts.poppins( // FIXED
+                              style: GoogleFonts.poppins(
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
                                 color: Colors.green[700],
@@ -703,7 +764,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
                         else
                           Text(
                             content,
-                            style: GoogleFonts.poppins(fontSize: 16), // FIXED
+                            style: GoogleFonts.poppins(fontSize: 16),
                           ),
                         const SizedBox(height: 4),
                         Row(
@@ -711,7 +772,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
                           children: [
                             Text(
                               DateFormat('hh:mm a').format(timestamp),
-                              style: GoogleFonts.poppins( // FIXED
+                              style: GoogleFonts.poppins(
                                 fontSize: 10,
                                 color: Colors.grey[600],
                               ),
@@ -771,7 +832,6 @@ class _SupportChatPageState extends State<SupportChatPage> {
     final imageBase64 = message['image_base64']?.toString();
 
     if (kIsWeb && imageBase64 != null) {
-      // For web, use base64 image
       try {
         return Image.memory(
           base64Decode(imageBase64),
@@ -786,7 +846,6 @@ class _SupportChatPageState extends State<SupportChatPage> {
         return _buildImageErrorWidget();
       }
     } else if (!kIsWeb && imagePath != null) {
-      // For mobile, check if file exists first
       return FutureBuilder<bool>(
         future: _checkFileExists(imagePath),
         builder: (context, snapshot) {
@@ -803,7 +862,6 @@ class _SupportChatPageState extends State<SupportChatPage> {
           } else if (snapshot.hasError) {
             return _buildImageErrorWidget();
           } else {
-            // Loading state
             return Container(
               width: 200,
               height: 150,
@@ -821,7 +879,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
   }
 
   Future<bool> _checkFileExists(String path) async {
-    if (kIsWeb) return false; // Web doesn't support file system
+    if (kIsWeb) return false;
     try {
       final file = File(path);
       return await file.exists();
@@ -843,7 +901,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
             const SizedBox(height: 8),
             Text(
               'Image not available',
-              style: GoogleFonts.poppins( // FIXED
+              style: GoogleFonts.poppins(
                 fontSize: 12,
                 color: Colors.grey,
               ),
@@ -886,7 +944,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
                                 const SizedBox(height: 10),
                                 Text(
                                   'Image not available',
-                                  style: GoogleFonts.poppins(), // FIXED
+                                  style: GoogleFonts.poppins(),
                                 ),
                               ],
                             ),
@@ -915,7 +973,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
                                 const SizedBox(height: 10),
                                 Text(
                                   'Image not found',
-                                  style: GoogleFonts.poppins(), // FIXED
+                                  style: GoogleFonts.poppins(),
                                 ),
                               ],
                             ),
@@ -933,7 +991,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
                           const SizedBox(height: 10),
                           Text(
                             'Image not available',
-                            style: GoogleFonts.poppins(), // FIXED
+                            style: GoogleFonts.poppins(),
                           ),
                         ],
                       ),
@@ -964,6 +1022,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
   void _showMessageOptions(Map<String, dynamic> message) {
     final isUser = message['sender'] == 'user';
     final messageId = message['id'];
+    final serverId = message['server_id']?.toString();
     final hasImage = message['type'] == 'image';
 
     showModalBottomSheet(
@@ -978,7 +1037,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
                   leading: const Icon(Icons.visibility),
                   title: Text(
                     'View Image',
-                    style: GoogleFonts.poppins(), // FIXED
+                    style: GoogleFonts.poppins(),
                   ),
                   onTap: () {
                     Navigator.pop(context);
@@ -989,7 +1048,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
                 leading: const Icon(Icons.copy),
                 title: Text(
                   'Copy Text',
-                  style: GoogleFonts.poppins(), // FIXED
+                  style: GoogleFonts.poppins(),
                 ),
                 onTap: () {
                   Navigator.pop(context);
@@ -998,7 +1057,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
                     SnackBar(
                       content: Text(
                         'Copied to clipboard',
-                        style: GoogleFonts.poppins(), // FIXED
+                        style: GoogleFonts.poppins(),
                       ),
                     ),
                   );
@@ -1009,18 +1068,18 @@ class _SupportChatPageState extends State<SupportChatPage> {
                   leading: const Icon(Icons.delete, color: Colors.red),
                   title: Text(
                     'Delete Message',
-                    style: GoogleFonts.poppins(color: Colors.red), // FIXED
+                    style: GoogleFonts.poppins(color: Colors.red),
                   ),
                   onTap: () {
                     Navigator.pop(context);
-                    _confirmDeleteMessage(messageId);
+                    _confirmDeleteMessage(messageId, serverId: serverId);
                   },
                 ),
               ListTile(
                 leading: const Icon(Icons.cancel),
                 title: Text(
                   'Cancel',
-                  style: GoogleFonts.poppins(), // FIXED
+                  style: GoogleFonts.poppins(),
                 ),
                 onTap: () => Navigator.pop(context),
               ),
@@ -1031,34 +1090,34 @@ class _SupportChatPageState extends State<SupportChatPage> {
     );
   }
 
-  void _confirmDeleteMessage(String messageId) {
+  void _confirmDeleteMessage(String messageId, {String? serverId}) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(
           'Delete Message',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold), // FIXED
+          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
         ),
         content: Text(
           'Are you sure you want to delete this message?',
-          style: GoogleFonts.poppins(), // FIXED
+          style: GoogleFonts.poppins(),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text(
               'Cancel',
-              style: GoogleFonts.poppins(), // FIXED
+              style: GoogleFonts.poppins(),
             ),
           ),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              _deleteMessage(messageId);
+              _deleteMessage(messageId, serverId: serverId);
             },
             child: Text(
               'Delete',
-              style: GoogleFonts.poppins(color: Colors.red), // FIXED
+              style: GoogleFonts.poppins(color: Colors.red),
             ),
           ),
         ],
@@ -1135,7 +1194,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
               children: [
                 Text(
                   'Support Agent',
-                  style: GoogleFonts.poppins( // FIXED
+                  style: GoogleFonts.poppins(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
                     color: Colors.green[700],
@@ -1173,7 +1232,11 @@ class _SupportChatPageState extends State<SupportChatPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isDesktop = screenWidth > 768; // Desktop threshold
+
+    // Main content widget
+    Widget content = Scaffold(
       body: Stack(
         children: [
           _buildFlowerWaveBackground(),
@@ -1225,14 +1288,14 @@ class _SupportChatPageState extends State<SupportChatPage> {
                           children: [
                             Text(
                               'Support Center',
-                              style: GoogleFonts.poppins( // FIXED
+                              style: GoogleFonts.poppins(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                             Text(
                               'Online - Usually replies instantly',
-                              style: GoogleFonts.poppins( // FIXED
+                              style: GoogleFonts.poppins(
                                 fontSize: 12,
                                 color: Colors.green,
                               ),
@@ -1255,7 +1318,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
                                       leading: const Icon(Icons.info),
                                       title: Text(
                                         'Chat Info',
-                                        style: GoogleFonts.poppins(), // FIXED
+                                        style: GoogleFonts.poppins(),
                                       ),
                                       onTap: () {
                                         Navigator.pop(context);
@@ -1266,7 +1329,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
                                       leading: const Icon(Icons.notifications),
                                       title: Text(
                                         'Mute Notifications',
-                                        style: GoogleFonts.poppins(), // FIXED
+                                        style: GoogleFonts.poppins(),
                                       ),
                                       onTap: () {
                                         Navigator.pop(context);
@@ -1274,32 +1337,40 @@ class _SupportChatPageState extends State<SupportChatPage> {
                                           SnackBar(
                                             content: Text(
                                               'Notifications muted',
-                                              style: GoogleFonts.poppins(), // FIXED
+                                              style: GoogleFonts.poppins(),
                                             ),
                                           ),
                                         );
                                       },
                                     ),
                                     ListTile(
-                                      leading: const Icon(Icons.clear_all),
+                                      leading: const Icon(Icons.refresh),
+                                      title: Text(
+                                        'Refresh Chat',
+                                        style: GoogleFonts.poppins(),
+                                      ),
+                                      onTap: () {
+                                        Navigator.pop(context);
+                                        _loadChatHistory();
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              'Refreshing chat...',
+                                              style: GoogleFonts.poppins(),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                    ListTile(
+                                      leading: const Icon(Icons.clear_all, color: Colors.red),
                                       title: Text(
                                         'Clear Chat',
-                                        style: GoogleFonts.poppins(), // FIXED
+                                        style: GoogleFonts.poppins(color: Colors.red),
                                       ),
                                       onTap: () {
                                         Navigator.pop(context);
                                         _clearChat();
-                                      },
-                                    ),
-                                    ListTile(
-                                      leading: const Icon(Icons.report),
-                                      title: Text(
-                                        'Report Issue',
-                                        style: GoogleFonts.poppins(), // FIXED
-                                      ),
-                                      onTap: () {
-                                        Navigator.pop(context);
-                                        _reportIssue();
                                       },
                                     ),
                                   ],
@@ -1373,7 +1444,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
                             controller: _messageController,
                             decoration: InputDecoration(
                               hintText: 'Type a message...',
-                              hintStyle: GoogleFonts.poppins(), // FIXED
+                              hintStyle: GoogleFonts.poppins(),
                               border: InputBorder.none,
                             ),
                             maxLines: null,
@@ -1416,6 +1487,31 @@ class _SupportChatPageState extends State<SupportChatPage> {
         ],
       ),
     );
+
+    // Wrap with Center and max width for desktop
+    return isDesktop
+        ? Center(
+            child: Container(
+              constraints: const BoxConstraints(
+                maxWidth: 600,
+                maxHeight: 800,
+              ),
+              margin: const EdgeInsets.symmetric(vertical: 20),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 20,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: content,
+            ),
+          )
+        : content;
   }
 
   void _showChatInfo() {
@@ -1427,7 +1523,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
       builder: (context) => AlertDialog(
         title: Text(
           'Chat Information',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold), // FIXED
+          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1435,32 +1531,36 @@ class _SupportChatPageState extends State<SupportChatPage> {
           children: [
             Text(
               '• Support Team: Available 24/7',
-              style: GoogleFonts.poppins(), // FIXED
+              style: GoogleFonts.poppins(),
             ),
             Text(
               '• Average Response Time: < 2 minutes',
-              style: GoogleFonts.poppins(), // FIXED
+              style: GoogleFonts.poppins(),
             ),
             Text(
               '• Chat ID: $chatId',
-              style: GoogleFonts.poppins(), // FIXED
+              style: GoogleFonts.poppins(),
             ),
             Text(
               '• Started: $startedDate',
-              style: GoogleFonts.poppins(), // FIXED
+              style: GoogleFonts.poppins(),
             ),
             const SizedBox(height: 8),
             Text(
               '• Messages: ${_messages.length}',
-              style: GoogleFonts.poppins(), // FIXED
+              style: GoogleFonts.poppins(),
             ),
             Text(
               '• User: ${widget.userName}',
-              style: GoogleFonts.poppins(), // FIXED
+              style: GoogleFonts.poppins(),
             ),
             Text(
               '• Images: ${_messages.where((msg) => msg['type'] == 'image').length}',
-              style: GoogleFonts.poppins(), // FIXED
+              style: GoogleFonts.poppins(),
+            ),
+            Text(
+              '• Last Sync: ${DateFormat('hh:mm a').format(DateTime.now())}',
+              style: GoogleFonts.poppins(),
             ),
           ],
         ),
@@ -1469,7 +1569,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
             onPressed: () => Navigator.pop(context),
             child: Text(
               'Close',
-              style: GoogleFonts.poppins(), // FIXED
+              style: GoogleFonts.poppins(),
             ),
           ),
         ],
@@ -1483,18 +1583,18 @@ class _SupportChatPageState extends State<SupportChatPage> {
       builder: (context) => AlertDialog(
         title: Text(
           'Clear Chat',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold), // FIXED
+          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
         ),
         content: Text(
           'Are you sure you want to clear all chat messages? This cannot be undone.',
-          style: GoogleFonts.poppins(), // FIXED
+          style: GoogleFonts.poppins(),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text(
               'Cancel',
-              style: GoogleFonts.poppins(), // FIXED
+              style: GoogleFonts.poppins(),
             ),
           ),
           TextButton(
@@ -1512,7 +1612,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
                   SnackBar(
                     content: Text(
                       'Chat cleared',
-                      style: GoogleFonts.poppins(), // FIXED
+                      style: GoogleFonts.poppins(),
                     ),
                   ),
                 );
@@ -1522,7 +1622,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
                   SnackBar(
                     content: Text(
                       'Error clearing chat: $e',
-                      style: GoogleFonts.poppins(), // FIXED
+                      style: GoogleFonts.poppins(),
                     ),
                   ),
                 );
@@ -1530,49 +1630,7 @@ class _SupportChatPageState extends State<SupportChatPage> {
             },
             child: Text(
               'Clear',
-              style: GoogleFonts.poppins(color: Colors.red), // FIXED
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _reportIssue() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(
-          'Report Issue',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold), // FIXED
-        ),
-        content: Text(
-          'Please describe the issue you\'re experiencing:',
-          style: GoogleFonts.poppins(), // FIXED
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Cancel',
-              style: GoogleFonts.poppins(), // FIXED
-            ),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Issue reported successfully',
-                    style: GoogleFonts.poppins(), // FIXED
-                  ),
-                ),
-              );
-            },
-            child: Text(
-              'Submit',
-              style: GoogleFonts.poppins(), // FIXED
+              style: GoogleFonts.poppins(color: Colors.red),
             ),
           ),
         ],

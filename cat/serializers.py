@@ -144,12 +144,12 @@ class TaskSerializer(serializers.ModelSerializer):
 # -----------------------
 # MESSAGE SERIALIZER
 # -----------------------
+
+
 class MessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = Message
-        fields = ['id', 'sender', 'content', 'timestamp', 'parent']
-
-
+        fields = ['id', 'sender', 'content', 'timestamp', 'parent', 'is_support', 'message_type', 'image_url']
 # -----------------------
 # ORDER SERIALIZER
 # -----------------------

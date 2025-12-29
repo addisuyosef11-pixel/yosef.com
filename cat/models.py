@@ -174,6 +174,7 @@ class Transaction(models.Model):
     account_number = models.CharField(max_length=50, blank=True, null=True)
     phone_number = models.CharField(max_length=20, blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    description = models.TextField(blank=True, null=True)
     date = models.DateTimeField(auto_now_add=True)
     def get_description(self, obj):
         """Create description from available data"""
@@ -471,7 +472,7 @@ class VIP(models.Model):
     daily_income = models.DecimalField(max_digits=10, decimal_places=2)
     income_days = models.IntegerField()
     upgrade = models.IntegerField(unique=True)
-
+    is_active = models.BooleanField(default=True)
     def total_earning(self):
         return self.daily_income * self.income_days
 
@@ -489,7 +490,7 @@ class UserVIP(models.Model):
     invested = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     purchase_date = models.DateTimeField(default=timezone.now)  # ADD THIS LINE
     last_claim_time = models.DateTimeField(null=True, blank=True)
-
+    is_active = models.BooleanField(default=True)
     def can_claim(self):
         if self.last_claim_time is None:
             return True
@@ -533,13 +534,17 @@ class Message(models.Model):
     sender = models.CharField(max_length=100)
     content = models.TextField()
     timestamp = models.DateTimeField(default=timezone.now)
-    parent = models.ForeignKey('self', null=True, blank=True, related_name='replies', on_delete=models.CASCADE)
-
+    parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='replies')
+    is_support = models.BooleanField(default=False)
+    message_type = models.CharField(max_length=20, default='text')  # 'text' or 'image'
+    image_url = models.URLField(blank=True, null=True)
+    
     class Meta:
-        ordering = ["timestamp"]
-
+        ordering = ['timestamp']
+    
     def __str__(self):
-        return f"{self.sender}: {self.content[:20]}"
+        return f"{self.sender}: {self.content[:50]}"
+
 
 
 class CustomerMessage(models.Model):
@@ -680,7 +685,7 @@ class MainProject(models.Model):
 class UserMainProject(models.Model):
     """Tracks user's main project purchases"""
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    main_project = models.ForeignKey(MainProject, on_delete=models.CASCADE)
+    main_project = models.ForeignKey('MainProject', on_delete=models.CASCADE)
     units = models.IntegerField(default=1, validators=[MinValueValidator(1)])
     invested_amount = models.DecimalField(max_digits=12, decimal_places=2)
     purchase_date = models.DateTimeField(auto_now_add=True)
@@ -706,10 +711,15 @@ class UserMainProject(models.Model):
         if self.last_claim_time is None:
             return True
             
+        # ✅ Now timedelta is imported
+        from datetime import timedelta
         return timezone.now() >= self.last_claim_time + timedelta(hours=24)
     
     def remaining_days(self):
         """Calculate remaining days in the investment cycle"""
+        if not self.purchase_date:  # Check if purchase_date exists
+            return self.main_project.cycle_days if self.main_project.cycle_days > 0 else float('inf')
+            
         if self.main_project.cycle_days <= 0:
             return float('inf')  # Infinite cycle
             
@@ -730,6 +740,9 @@ class UserMainProject(models.Model):
         if self.main_project.cycle_days <= 0:
             return True  # Infinite cycle
             
+        if not self.purchase_date:  # Check if purchase_date exists
+            return True  # New investment is active
+            
         days_since_purchase = (timezone.now() - self.purchase_date).days
         return days_since_purchase < self.main_project.cycle_days
     
@@ -742,16 +755,26 @@ class UserMainProject(models.Model):
         daily_income = self.main_project.daily_income * self.units
         
         # Update user balance
-        profile = Profile.objects.get(user=self.user)
-        profile.balance += daily_income
-        profile.available_balance += daily_income
-        profile.save()
+        try:
+            # Import inside method to avoid circular imports
+            from .models import Profile
+            profile = Profile.objects.get(user=self.user)
+            profile.balance += daily_income
+            profile.available_balance += daily_income
+            profile.save()
+        except Profile.DoesNotExist:
+            # Create profile if it doesn't exist
+            from .models import Profile
+            profile = Profile.objects.create(user=self.user)
+            profile.balance = daily_income
+            profile.available_balance = daily_income
+            profile.save()
         
         # Update last claim time
         self.last_claim_time = timezone.now()
         
         # Check and update status based on cycle completion
-        if self.main_project.cycle_days > 0:
+        if self.main_project.cycle_days > 0 and self.purchase_date:
             days_since_purchase = (timezone.now() - self.purchase_date).days
             if days_since_purchase >= self.main_project.cycle_days:
                 self.status = 'completed'
@@ -763,7 +786,7 @@ class UserMainProject(models.Model):
     def save(self, *args, **kwargs):
         """Override save to auto-update status based on cycle days"""
         # Auto-update status when saving
-        if self.main_project.cycle_days > 0:
+        if self.main_project.cycle_days > 0 and self.purchase_date:
             days_since_purchase = (timezone.now() - self.purchase_date).days
             if days_since_purchase >= self.main_project.cycle_days:
                 self.status = 'completed'
@@ -775,7 +798,8 @@ class UserMainProject(models.Model):
 
 
 
-       
+
+
 
 from django.core.validators import FileExtensionValidator
 import os
